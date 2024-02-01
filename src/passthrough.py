@@ -1,10 +1,14 @@
-#!/bin/python3
+"""Passthrough file system that "bind-mounts" another system.
 
-# From: https://www.stavros.io/posts/python-fuse-filesystem/
-#       https://github.com/skorokithakis/python-fuse-sample
+From: 
+  - https://www.stavros.io/posts/python-fuse-filesystem/
+  - https://github.com/skorokithakis/python-fuse-sample
+"""
+
 import os
 import sys
 import errno
+
 
 from fuse import FUSE, FuseOSError, Operations
 # For error numbers, see https://android.googlesource.com/kernel/lk/+/dima/for-travis/include/errno.h
@@ -130,8 +134,8 @@ class Passthrough(Operations):
         return self.flush(path, fh)
 
 
-def main(mountpoint, root):
-    FUSE(Passthrough(root), mountpoint, nothreads=True, foreground=True)
+def main(mountpoint, root, cls=Passthrough):
+    FUSE(cls(root), mountpoint, nothreads=True, foreground=True)
 
 if __name__ == '__main__':
     main(sys.argv[2], sys.argv[1])

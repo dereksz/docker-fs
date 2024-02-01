@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 """Passthrough file system that "bind-mounts" another system.
 
 From: 

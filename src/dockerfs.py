@@ -1,4 +1,4 @@
-#!/bin/python3
+#!/usr/bin/env python3
 
 # From: https://www.stavros.io/posts/python-fuse-filesystem/
 #       https://github.com/skorokithakis/python-fuse-sample
@@ -7,6 +7,8 @@ import sys
 import errno
 
 import docker
+
+# print(sys.path)
 
 from fuse import FUSE, FuseOSError, Operations
 # For error numbers, see https://android.googlesource.com/kernel/lk/+/dima/for-travis/include/errno.h
@@ -40,7 +42,8 @@ x
     docker: docker.ContextAPI
 
     def __init__(self, root):
-        self.docker = docker.ContextAPI()
+        self.root = root
+        # self.docker = docker.ContextAPI()
 
     # Helpers
     # =======

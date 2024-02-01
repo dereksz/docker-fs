@@ -1,8 +1,8 @@
-# Docker FS
+# DockerFS
 
 ## Summary
 
-The intention of Docker FS is to expose information
+The intention of DockerFS is to expose information
 about Docker objects (containers, images, volumes, etc.) via
 a [FUSE (Filesystem in USEr-space)](https://en.wikipedia.org/wiki/Filesystem_in_Userspace)
 mount point.
@@ -29,6 +29,7 @@ use the Docker assets as if they were file targets
 
 ### Resources
 
+- [Example FUSE Loopback in Python](https://github.com/skorokithakis/python-fuse-sample)
 - [TTL Cache](https://stackoverflow.com/a/52128389/1331446)
   to avoid calling Docker too often.  (Should likely be using
   soimething in the order of a second or two; time to re-invoke

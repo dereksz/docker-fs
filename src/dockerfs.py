@@ -2,23 +2,32 @@
 
 # From: https://www.stavros.io/posts/python-fuse-filesystem/
 #       https://github.com/skorokithakis/python-fuse-sample
+import logging
 import os
 import sys
 import errno
-
-import docker
+from typing import Final
 
 # print(sys.path)
 
 from fuse import FUSE, FuseOSError, Operations
+from color_logger import ColourFormatter
+from passthrough_ro import PassthroughRO, main
+from caching_docker_context import CachingDockerContext
+
 # For error numbers, see https://android.googlesource.com/kernel/lk/+/dima/for-travis/include/errno.h
 # ENOTSUP - not suppoerted
 # EROFS - Read only file system
 # EACCES - Permission denied
 # EIO - io error
 
+ROOT_LOGGER : Final = logging.getLogger()
+ColourFormatter.add_handler_to(logging.getLogger())
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
-class DockerFS(Operations):
+
+class DockerFS(PassthroughRO):
     """This is s FUSE file-system driver for docker assets.
     
     As a file system, we have:
@@ -36,54 +45,59 @@ class DockerFS(Operations):
        +-- volumes
            +-- by-uuid
            +-- by-name
-x    
+    
     """
     
-    docker: docker.ContextAPI
+    
 
     def __init__(self, root):
-        self.root = root
-        # self.docker = docker.ContextAPI()
+        super().__init__(root)
+        self.docker = CachingDockerContext()
 
-    # Helpers
-    # =======
-
-    def _full_path(self, partial):
-        partial = partial.lstrip("/")
-        path = os.path.join(self.root, partial)
-        return path
 
     # Filesystem methods
     # ==================
 
-    def access(self, path, mode):
-        full_path = self._full_path(path)
-        if not os.access(full_path, mode):
-            raise FuseOSError(errno.EACCES)
+    def access(self, path: str, mode: int):
+        if mode in (os.R_OK, os.F_OK):
+            logger.debug(f"access(self, {path=}, {mode=})")
+            return 0
+        logger.warning(f"access(self, {path=}, {mode=})")
+        raise FuseOSError(errno.EACCES)
 
-    def chmod(self, path, mode):
-        full_path = self._full_path(path)
-        return os.chmod(full_path, mode)
+    def getattr(self, path: str, fh=None):
+        logger.debug(f"getattr(self, {path=}, {fh=})")
+        if path == "/":
+            return self.docker.getattr_()
+        parts = path.split('/')
+        if len(parts) == 2:
+            parts.append(None)
+        assert len(parts) == 3, "Only expect docker object type and (optionally) name"
+        assert parts[0] == "", "Path needs to start with `/`."
+        method = getattr(CachingDockerContext, f"getattr_{parts[1]}")
+        if not method:
+            logger.warning(f"getattr(self, {path=}, {fh=}): Path is not registered.")
+            raise FuseOSError(errno.ENOENT)
 
-    def chown(self, path, uid, gid):
-        full_path = self._full_path(path)
-        return os.chown(full_path, uid, gid)
+        result = method(self.docker, parts[2])
+        return result
 
-    def getattr(self, path, fh=None):
-        full_path = self._full_path(path)
-        st = os.lstat(full_path)
-        return dict((key, getattr(st, key)) for key in ('st_atime', 'st_ctime',
-                     'st_gid', 'st_mode', 'st_mtime', 'st_nlink', 'st_size', 'st_uid'))
 
-    def readdir(self, path, fh):
-        full_path = self._full_path(path)
+    def readdir(self, path: str, fh):
+        logger.debug(f"readdir(self, {path=}, {fh=})")
+        assert path[0] == '/'
+        path = path[1:]
+        reader = getattr(CachingDockerContext, f"list_{path}")
+        if not reader:
+          logger.warning(f"readdir(self, {path=}, {fh=}): Path is not registered.")
+          raise FuseOSError(errno.ENOENT)
 
-        dirents = ['.', '..']
-        if os.path.isdir(full_path):
-            dirents.extend(os.listdir(full_path))
-        yield from dirents
+        yield "."
+        yield ".."
+        yield from reader(self.docker)
 
     def readlink(self, path):
+        logger.debug(f"readlink(self, {path=})")
         pathname = os.readlink(self._full_path(path))
         if pathname.startswith("/"):
             # Path name is absolute, sanitize it.
@@ -91,74 +105,25 @@ x
         else:
             return pathname
 
-    def mknod(self, path, mode, dev):
-        return os.mknod(self._full_path(path), mode, dev)
-
-    def rmdir(self, path):
-        full_path = self._full_path(path)
-        return os.rmdir(full_path)
-
-    def mkdir(self, path, mode):
-        return os.mkdir(self._full_path(path), mode)
-
-    def statfs(self, path):
-        full_path = self._full_path(path)
-        stv = os.statvfs(full_path)
-        return dict((key, getattr(stv, key)) for key in ('f_bavail', 'f_bfree',
-            'f_blocks', 'f_bsize', 'f_favail', 'f_ffree', 'f_files', 'f_flag',
-            'f_frsize', 'f_namemax'))
-
-    def unlink(self, path):
-        return os.unlink(self._full_path(path))
-
-    def symlink(self, name, target):
-        return os.symlink(name, self._full_path(target))
-
-    def rename(self, old, new):
-        return os.rename(self._full_path(old), self._full_path(new))
-
-    def link(self, target, name):
-        return os.link(self._full_path(target), self._full_path(name))
-
-    def utimens(self, path, times=None):
-        return os.utime(self._full_path(path), times)
 
     # File methods
     # ============
 
-    def open(self, path, flags):
+    def open(self, path: str, flags):
+        logger.debug(f"open(self, {path=}, {flags=})")
         full_path = self._full_path(path)
         return os.open(full_path, flags)
 
-    def create(self, path, mode, fi=None):
-        full_path = self._full_path(path)
-        return os.open(full_path, os.O_WRONLY | os.O_CREAT, mode)
-
-    def read(self, path, length, offset, fh):
+    def read(self, path: str, length: int, offset, fh):
+        logger.debug(f"read(self, {path=}, {length=}, {offset=}, {fh=})")
         os.lseek(fh, offset, os.SEEK_SET)
         return os.read(fh, length)
 
-    def write(self, path, buf, offset, fh):
-        os.lseek(fh, offset, os.SEEK_SET)
-        return os.write(fh, buf)
-
-    def truncate(self, path, length, fh=None):
-        full_path = self._full_path(path)
-        with open(full_path, 'r+') as f:
-            f.truncate(length)
-
-    def flush(self, path, fh):
-        return os.fsync(fh)
-
-    def release(self, path, fh):
+    def release(self, path: str, fh):
+        logger.debug(f"release(self, {path=}, {fh=})")
         return os.close(fh)
 
-    def fsync(self, path, fdatasync, fh):
-        return self.flush(path, fh)
-
-
-def main(mountpoint, root):
-    FUSE(DockerFS(root), mountpoint, nothreads=True, foreground=True)
 
 if __name__ == '__main__':
-    main(sys.argv[2], sys.argv[1])
+    main(sys.argv[2], sys.argv[1], DockerFS)
+

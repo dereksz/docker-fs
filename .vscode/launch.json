@@ -1,0 +1,30 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+      {
+          "name": "Python: Current File",
+          "type": "debugpy",
+          "request": "launch",
+          "program": "${file}",
+          "console": "integratedTerminal",
+          "cwd": "${fileDirname}",
+          "env": {
+            "PYTHONPATH": "${workspaceFolder}${pathSeparator}src"
+          },
+          "justMyCode": false,
+      },
+      {
+          "name": "Python: mount",
+          "type": "debugpy",
+          "request": "launch",
+          "program": "dockerfs.py",
+          "console": "integratedTerminal",
+          "cwd": "${workspaceFolder}/src",
+          "args": ["/home/derek/dev/derek/docker-status-fs", "/home/derek/.dockerfs"]
+          "env": {
+            "PYTHONPATH": "${workspaceFolder}${pathSeparator}src"
+          },
+          "justMyCode": false,
+      },
+  ]
+}

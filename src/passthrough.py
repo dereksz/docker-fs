@@ -10,6 +10,7 @@ From:
 import os
 import sys
 import errno
+import logging
 
 
 from fuse import FUSE, FuseOSError, Operations
@@ -18,6 +19,12 @@ from fuse import FUSE, FuseOSError, Operations
 # EROFS - Read only file system
 # EACCES - Permission denied
 # EIO - io error
+
+
+logging.basicConfig()
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+
 
 
 class Passthrough(Operations):
@@ -35,26 +42,31 @@ class Passthrough(Operations):
     # Filesystem methods
     # ==================
 
-    def access(self, path, mode):
+    def access(self, path: str, mode: int):
+        logger.debug(f"access(self, {path=}, {mode=})")
         full_path = self._full_path(path)
         if not os.access(full_path, mode):
             raise FuseOSError(errno.EACCES)
 
-    def chmod(self, path, mode):
+    def chmod(self, path: str, mode: int):
+        logger.debug(f"chmod(self, {path=}, {mode=})")
         full_path = self._full_path(path)
         return os.chmod(full_path, mode)
 
-    def chown(self, path, uid, gid):
+    def chown(self, path: str, uid, gid):
+        logger.debug(f"chown(self, {path=}, {uid=}, {gid=})")
         full_path = self._full_path(path)
         return os.chown(full_path, uid, gid)
 
-    def getattr(self, path, fh=None):
+    def getattr(self, path: str, fh=None):
+        logger.debug(f"getattr(self, {path=}, {fh=})")
         full_path = self._full_path(path)
         st = os.lstat(full_path)
         return dict((key, getattr(st, key)) for key in ('st_atime', 'st_ctime',
                      'st_gid', 'st_mode', 'st_mtime', 'st_nlink', 'st_size', 'st_uid'))
 
-    def readdir(self, path, fh):
+    def readdir(self, path: str, fh):
+        logger.debug(f"readdir(self, {path=}, {fh=})")
         full_path = self._full_path(path)
 
         dirents = ['.', '..']
@@ -63,6 +75,7 @@ class Passthrough(Operations):
         yield from dirents
 
     def readlink(self, path):
+        logger.debug(f"readlink(self, {path=})")
         pathname = os.readlink(self._full_path(path))
         if pathname.startswith("/"):
             # Path name is absolute, sanitize it.
@@ -70,17 +83,21 @@ class Passthrough(Operations):
         else:
             return pathname
 
-    def mknod(self, path, mode, dev):
+    def mknod(self, path: str, mode, dev):
+        logger.debug(f"mknod(self, {path=}, {mode=}, {dev=})")
         return os.mknod(self._full_path(path), mode, dev)
 
     def rmdir(self, path):
+        logger.debug(f"rmdir(self, {path=})")
         full_path = self._full_path(path)
         return os.rmdir(full_path)
 
-    def mkdir(self, path, mode):
+    def mkdir(self, path: str, mode: int):
+        logger.debug(f"mkdir(self, {path=}, {mode=})")
         return os.mkdir(self._full_path(path), mode)
 
     def statfs(self, path):
+        logger.debug(f"statfs(self, {path=})")
         full_path = self._full_path(path)
         stv = os.statvfs(full_path)
         return dict((key, getattr(stv, key)) for key in ('f_bavail', 'f_bfree',
@@ -88,51 +105,64 @@ class Passthrough(Operations):
             'f_frsize', 'f_namemax'))
 
     def unlink(self, path):
+        logger.debug(f"unlink(self, {path=})")
         return os.unlink(self._full_path(path))
 
     def symlink(self, name, target):
+        logger.debug(f"symlink(self, {name=}, {target=})")
         return os.symlink(name, self._full_path(target))
 
     def rename(self, old, new):
+        logger.debug(f"rename(self, {old=}, {new=})")
         return os.rename(self._full_path(old), self._full_path(new))
 
     def link(self, target, name):
+        logger.debug(f"link(self, {target=}, {name=})")
         return os.link(self._full_path(target), self._full_path(name))
 
-    def utimens(self, path, times=None):
+    def utimens(self, path: str, times=None):
+        logger.debug(f"utimens(self, {path=}, {times=})")
         return os.utime(self._full_path(path), times)
 
     # File methods
     # ============
 
-    def open(self, path, flags):
+    def open(self, path: str, flags):
+        logger.debug(f"open(self, {path=}, {flags=})")
         full_path = self._full_path(path)
         return os.open(full_path, flags)
 
-    def create(self, path, mode, fi=None):
+    def create(self, path: str, mode, fi=None):
+        logger.debug(f"create(self, {path=}, {mode=}, {fi=})")
         full_path = self._full_path(path)
         return os.open(full_path, os.O_WRONLY | os.O_CREAT, mode)
 
-    def read(self, path, length, offset, fh):
+    def read(self, path: str, length: int, offset, fh):
+        logger.debug(f"read(self, {path=}, {length=}, {offset=}, {fh=})")
         os.lseek(fh, offset, os.SEEK_SET)
         return os.read(fh, length)
 
-    def write(self, path, buf, offset, fh):
+    def write(self, path: str, buf, offset, fh):
+        logger.debug(f"write(self, {path=}, buf, {offset=}, {fh=})")
         os.lseek(fh, offset, os.SEEK_SET)
         return os.write(fh, buf)
 
-    def truncate(self, path, length, fh=None):
+    def truncate(self, path: str, length: int, fh=None):
+        logger.debug(f"truncate(self, {path=}, {length=}, {fh=})")
         full_path = self._full_path(path)
         with open(full_path, 'r+') as f:
             f.truncate(length)
 
-    def flush(self, path, fh):
+    def flush(self, path: str, fh):
+        logger.debug(f"flush(self, {path=}, {fh=})")
         return os.fsync(fh)
 
-    def release(self, path, fh):
+    def release(self, path: str, fh):
+        logger.debug(f"release(self, {path=}, {fh=})")
         return os.close(fh)
 
-    def fsync(self, path, fdatasync, fh):
+    def fsync(self, path: str, fdatasync, fh):
+        logger.debug(f"fsync(self, {path=}, {fdatasync=}, {fh=})")
         return self.flush(path, fh)
 
 

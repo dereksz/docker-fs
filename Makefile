@@ -5,7 +5,8 @@ MAKEFLAGS += --no-builtin-rules
 .PHONY: run ls install install-clean setup
 
 run:
-	docker run --rm bash ls
+	docker run bash ls
+	docker run docker/whalesay Hello Derek
 
 ls:
 	docker image ls --format jsoncd ../..

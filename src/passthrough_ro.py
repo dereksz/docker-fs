@@ -11,7 +11,7 @@ import os
 import sys
 import errno
 import logging
-from typing import Any, Generator
+from typing import Any, Generator, NoReturn
 
 
 from fuse import FUSE, FuseOSError
@@ -34,11 +34,11 @@ class PassthroughRO(Passthrough):
     # Filesystem methods
     # ==================
 
-    def access(self, path: str, mode: int):
-        if mode & os.O_WRONLY:
-            logger.error(f"access(self, {path=}, {mode=}) - requesting write access on RO file-system")
+    def access(self, path: str, amode: int):
+        if amode & os.O_WRONLY:
+            logger.error(f"access(self, {path=}, {amode=}) - requesting write access on RO file-system")
             raise FuseOSError(errno.EROFS)
-        return super().access(path, mode)
+        return super().access(path, amode)
 
     def chmod(self, path: str, mode: int):
         logger.error(f"chmod(self, {path=}, {mode=}) - requesting changes on RO file-system")
@@ -87,16 +87,16 @@ class PassthroughRO(Passthrough):
         logger.error(f"unlink(self, {path=}) - requesting changes on RO file-system")
         raise FuseOSError(errno.EROFS)
 
-    def symlink(self, name, target):
-        logger.error(f"symlink(self, {name=}, {target=}) - requesting changes on RO file-system")
+    def symlink(self, source, target):
+        logger.error(f"symlink(self, {source=}, {target=}) - requesting changes on RO file-system")
         raise FuseOSError(errno.EROFS)
 
     def rename(self, old, new):
         logger.error(f"rename(self, {old=}, {new=}) - requesting changes on RO file-system")
         raise FuseOSError(errno.EROFS)
 
-    def link(self, target, name):
-        logger.error(f"link(self, {target=}, {name=}) - requesting changes on RO file-system")
+    def link(self, target, source):
+        logger.error(f"link(self, {target=}, {source=}) - requesting changes on RO file-system")
         raise FuseOSError(errno.EROFS)
 
     def utimens(self, path: str, times=None):
@@ -116,10 +116,10 @@ class PassthroughRO(Passthrough):
         logger.error(f"create(self, {path=}, {mode=}, {fi=}) - requesting changes on RO file-system")
         raise FuseOSError(errno.EROFS)
 
-    def read(self, path: str, length: int, offset, fh):
-        logger.debug(f"read(self, {path=}, {length=}, {offset=}, {fh=})")
+    def read(self, path: str, size: int, offset, fh):
+        logger.debug(f"read(self, {path=}, {size=}, {offset=}, {fh=})")
         os.lseek(fh, offset, os.SEEK_SET)
-        return os.read(fh, length)
+        return os.read(fh, size)
 
     def write(self, path: str, buf, offset, fh):
         logger.error(f"write(self, {path=}, buf, {offset=}, {fh=}) - requesting changes on RO file-system")

@@ -11,6 +11,7 @@ import os
 import sys
 import errno
 import logging
+from typing import Optional
 
 
 from fuse import FUSE, FuseOSError, Operations
@@ -24,7 +25,6 @@ from fuse import FUSE, FuseOSError, Operations
 logging.basicConfig()
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
-
 
 
 class Passthrough(Operations):
@@ -42,10 +42,10 @@ class Passthrough(Operations):
     # Filesystem methods
     # ==================
 
-    def access(self, path: str, mode: int):
-        logger.debug(f"access(self, {path=}, {mode=})")
+    def access(self, path: str, amode: int):
+        logger.debug(f"access(self, {path=}, {amode=})")
         full_path = self._full_path(path)
-        if not os.access(full_path, mode):
+        if not os.access(full_path, amode):
             raise FuseOSError(errno.EACCES)
 
     def chmod(self, path: str, mode: int):
@@ -108,17 +108,17 @@ class Passthrough(Operations):
         logger.debug(f"unlink(self, {path=})")
         return os.unlink(self._full_path(path))
 
-    def symlink(self, name, target):
+    def symlink(self, target, source):
         logger.debug(f"symlink(self, {name=}, {target=})")
-        return os.symlink(name, self._full_path(target))
+        return os.symlink(source, self._full_path(target))
 
     def rename(self, old, new):
         logger.debug(f"rename(self, {old=}, {new=})")
         return os.rename(self._full_path(old), self._full_path(new))
 
-    def link(self, target, name):
-        logger.debug(f"link(self, {target=}, {name=})")
-        return os.link(self._full_path(target), self._full_path(name))
+    def link(self, target, source):
+        logger.debug(f"link(self, {target=}, {source=})")
+        return os.link(self._full_path(target), self._full_path(source))
 
     def utimens(self, path: str, times=None):
         logger.debug(f"utimens(self, {path=}, {times=})")
@@ -137,10 +137,10 @@ class Passthrough(Operations):
         full_path = self._full_path(path)
         return os.open(full_path, os.O_WRONLY | os.O_CREAT, mode)
 
-    def read(self, path: str, length: int, offset, fh):
-        logger.debug(f"read(self, {path=}, {length=}, {offset=}, {fh=})")
+    def read(self, path: str, size: int, offset, fh):
+        logger.debug(f"read(self, {path=}, {size=}, {offset=}, {fh=})")
         os.lseek(fh, offset, os.SEEK_SET)
-        return os.read(fh, length)
+        return os.read(fh, size)
 
     def write(self, path: str, buf, offset, fh):
         logger.debug(f"write(self, {path=}, buf, {offset=}, {fh=})")
@@ -166,13 +166,12 @@ class Passthrough(Operations):
         return self.flush(path, fh)
 
 
-def main(mountpoint, root, cls=Passthrough, debug=False):
+def main(mountpoint, root, cls=Passthrough, socket: Optional[str] = None, debug=False):
     try:
-        FUSE(cls(root), mountpoint, nothreads=True, foreground=True, debug=debug)
+        FUSE(cls(root, socket), mountpoint, nothreads=True, foreground=True, debug=debug)
     except RuntimeError as e:
-
-        logger.error("FUSE call failed - is it already mounted?:")
-        exit(-1)
+        logger.error("FUSE call failed - is it already mounted?  %s", e)
+        sys.exit(-1)
 
 if __name__ == '__main__':
     main(sys.argv[2], sys.argv[1])

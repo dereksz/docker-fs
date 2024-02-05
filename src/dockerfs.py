@@ -14,7 +14,7 @@ from color_logger import ColourFormatter, getColourStreamHandler
 
 from fuse import FUSE, FuseOSError, Operations
 from passthrough_ro import PassthroughRO, main
-from caching_docker_context import CachingDockerContext
+from caching_docker_context import CachingDockerContext, file_attr_to_str
 
 # For error numbers, see https://android.googlesource.com/kernel/lk/+/dima/for-travis/include/errno.h
 # ENOTSUP - not suppoerted
@@ -24,35 +24,14 @@ from caching_docker_context import CachingDockerContext
 
 ROOT_LOGGER : Final = logging.getLogger()
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
 
 
 class DockerFS(PassthroughRO):
-    """This is s FUSE file-system driver for docker assets.
-    
-    As a file system, we have:
-    *--+-- context
-       +-- containers
-           +-- by-uuid
-           +-- by-name
-           +-- running
-               +-- by-uuid
-               +-- by-name
-               
-       +-- images
-           +-- by-uuid
-           +-- by-name
-       +-- volumes
-           +-- by-uuid
-           +-- by-name
-    
-    """
-    
-    
+    """This is s FUSE file-system driver for docker assets."""
 
-    def __init__(self, root):
+    def __init__(self, root, socket: Optional[str] = None):
         super().__init__(root)
-        self.docker = CachingDockerContext()
+        self.docker = CachingDockerContext(socket)
 
 
     # Filesystem methods
@@ -72,8 +51,18 @@ class DockerFS(PassthroughRO):
         parts : List[Optional[str]] = path.split('/')
         if len(parts) == 2:
             parts.append(None)
-        assert len(parts) == 3, "Only expect docker object type and (optionally) name"
-        assert parts[0] == "", "Path needs to start with `/`."
+        if (
+            len(parts) != 3
+            or parts[0] != ""
+            or parts[1] not in (
+                "volumes",
+                "images",
+                "containers"
+            )
+        ):
+            logger.warning(f"getattr(self, {path=}, {fh=}): Path is not registered.")
+            raise FuseOSError(errno.ENOENT)
+
         method = getattr(CachingDockerContext, f"getattr_{parts[1]}")
         if not method:
             logger.warning(f"getattr(self, {path=}, {fh=}): Path is not registered.")
@@ -81,21 +70,28 @@ class DockerFS(PassthroughRO):
 
         result = method(self.docker, parts[2])
         assert isinstance(result, dict), "getattr must return a dict"
+        result["st_blocksize"] = 512
+        result["st_blocks"] = (result["st_size"] - 1) // result["st_blocksize"] + 1
+        result["st_dev"] = 1
+        result["st_ino"] = 5
+        logger.info(f"getattr(self, {path=}, {fh=}) ->\n%s\n", file_attr_to_str(result))
         return result
 
 
     def readdir(self, path: str, fh):
-        logger.debug(f"readdir(self, {path=}, {fh=})")
+        # logger.debug(f"readdir(self, {path=}, {fh=})")
         assert path[0] == '/'
         path = path[1:]
         reader = getattr(CachingDockerContext, f"readdir_{path}")
         if not reader:
-          logger.warning(f"readdir(self, {path=}, {fh=}): Path is not registered.")
-          raise FuseOSError(errno.ENOENT)
+            logger.warning(f"readdir(self, {path=}, {fh=}): Path is not registered.")
+            raise FuseOSError(errno.ENOENT)
 
         yield "."
         yield ".."
-        yield from reader(self.docker)
+        files = reader(self.docker)
+        logger.info(f"readdir(self, {path=}, {fh=}) found %i files", len(files))
+        yield from files
 
 
     def readlink(self, path):
@@ -133,7 +129,8 @@ if __name__ == '__main__':
     for h in ROOT_LOGGER.handlers:
         if h is not COLOUR_HANDLER:
             ROOT_LOGGER.removeHandler(h)
-    ROOT_LOGGER.setLevel(logging.DEBUG)
-    
-    main(sys.argv[2], sys.argv[1], DockerFS)
 
+    ROOT_LOGGER.setLevel(logging.INFO)
+    logger.setLevel(logging.INFO)
+
+    main(sys.argv[2], sys.argv[1], DockerFS, sys.argv[3] if len(sys.argv) > 3 else None, debug=True)

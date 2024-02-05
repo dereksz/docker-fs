@@ -2,6 +2,7 @@ from datetime import datetime
 import errno
 import logging
 from stat import S_IFCHR, S_IFDIR, S_IFREG, S_IFLNK, S_IMODE
+import sys
 from typing import Dict, Final, Generator, Iterable, List, Optional
 
 import docker
@@ -25,6 +26,24 @@ START_TIME = datetime(2000, 1, 1)
 
 FileAttra = Dict[str, int | float]
 
+def file_attr_to_str(attr: FileAttra) -> str:
+    attr = attr.copy()
+    lines : List[str] = []
+    for keys, formatter in (
+        (("st_ctime", "st_mtime", "st_atime",), 
+            lambda timet: datetime.fromtimestamp(timet).isoformat()),
+        (("st_mode",), oct),
+    ):
+        for k in keys:
+            value = attr.pop(k, None)
+            if value is not None:
+                lines.append(k + ": " + formatter(value))
+    # Keys not explicitly above
+    for k, v in attr.items():
+        lines.append(k + ": " + str(v))
+    return "\n".join(lines)
+
+
 class DockerModel(_DockerModel):
     
     tags: Iterable[str]
@@ -38,7 +57,9 @@ class CachingDockerContext():
     container_symlinks: Dict[str, str]
     file_desciptors: List[Optional[DockerModel]]
   
-    def __init__(self, base_url: str ='unix://var/run/docker.sock'):
+    # Linux: 'unix://var/run/docker.sock' 
+    # Mac colima: "unix:~/.colima/default/docker.sock"
+    def __init__(self, base_url: str | None = None):
         self.client = docker.client.DockerClient(base_url=base_url)
         self.volume_symlinks = {}
         self.image_symlinks = {}
@@ -117,7 +138,7 @@ class CachingDockerContext():
         atime: Optional[float] = None,
         ctime: Optional[float] = None,
         mtime: Optional[float] = None,
-        size: int = 0,
+        size: int = 1000,
         nlink: int = 1,
     ) -> FileAttra:
         now_ish = float(1707020058.716742869)
@@ -131,8 +152,10 @@ class CachingDockerContext():
           'st_nlink': nlink,
         }
         # if size:
-        attr['st_size'] = size
-       
+        attr['st_size'] = size or 1000
+        if sys.platform == "darwin":
+            attr["st_flags"] = 0  # user defined flags for file
+
         return attr
 
        
@@ -173,7 +196,7 @@ class CachingDockerContext():
         attrs = model.attrs
         created : str = attrs.get("Created") or attrs.get("CreatedAt") # the latter for volumes
         ctime = datetime.fromisoformat(created).timestamp()
-        size = attrs.get("Size",1)
+        size = attrs.get("Size",1000)
         attr["st_ctime"] = ctime
         attr["st_mtime"] = ctime
         attr["st_atime"] = ctime
@@ -204,7 +227,7 @@ class CachingDockerContext():
         attr["st_ctime"] = ctime
         attr["st_mtime"] = ctime
         attr["st_atime"] = ctime
-        attr["st_size"] = size
+        attr["st_size"] = size or 1000 # TODO: fake for fuse-t
         return attr
         
 
@@ -216,7 +239,6 @@ class CachingDockerContext():
         )
         return attr
         
-
     def getattr_volumes(self, name: Optional[str]) -> FileAttra:
         return self._getattr(self.client.volumes, name)
 

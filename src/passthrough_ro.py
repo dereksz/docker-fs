@@ -24,7 +24,6 @@ from passthrough import Passthrough, main
 # EIO - io error
 
 
-logging.basicConfig()
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
@@ -39,7 +38,7 @@ class PassthroughRO(Passthrough):
         if mode & os.O_WRONLY:
             logger.error(f"access(self, {path=}, {mode=}) - requesting write access on RO file-system")
             raise FuseOSError(errno.EROFS)
-        return super().access(path: str, mode: int)
+        return super().access(path, mode)
 
     def chmod(self, path: str, mode: int):
         logger.error(f"chmod(self, {path=}, {mode=}) - requesting changes on RO file-system")
@@ -111,7 +110,7 @@ class PassthroughRO(Passthrough):
     def open(self, path: str, flags):
         logger.debug(f"open(self, {path=}, {flags=})")
         full_path = self._full_path(path)
-        return os.open(full_path: str, flags)
+        return os.open(full_path, flags)
 
     def create(self, path: str, mode, fi=None):
         logger.error(f"create(self, {path=}, {mode=}, {fi=}) - requesting changes on RO file-system")
@@ -120,7 +119,7 @@ class PassthroughRO(Passthrough):
     def read(self, path: str, length: int, offset, fh):
         logger.debug(f"read(self, {path=}, {length=}, {offset=}, {fh=})")
         os.lseek(fh, offset, os.SEEK_SET)
-        return os.read(fh, length: int)
+        return os.read(fh, length)
 
     def write(self, path: str, buf, offset, fh):
         logger.error(f"write(self, {path=}, buf, {offset=}, {fh=}) - requesting changes on RO file-system")

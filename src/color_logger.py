@@ -9,7 +9,7 @@ class ColourFormatter(logging.Formatter):
     blue = "\x1b[34;20m"
     magenta = "\x1b[35;20m"
     cyan = "\x1b[36;20m"
-    grey = "\x1b[38;20m"
+    grey = "\x1b[37;20m"
     reset = "\x1b[0m"
     format_template = '%(levelname)s - %(name)s - %(funcName)s - %(message)s - (%(pathname)s:%(lineno)d)'
 
@@ -36,7 +36,8 @@ class ColourFormatter(logging.Formatter):
 
     def format(self, record):
         formatter: logging.Formatter = self.__get_formatter(record.levelno)
-        return formatter.format(record)
+        result =  formatter.format(record)
+        return result
 
       
     @classmethod

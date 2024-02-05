@@ -166,8 +166,13 @@ class Passthrough(Operations):
         return self.flush(path, fh)
 
 
-def main(mountpoint, root, cls=Passthrough):
-    FUSE(cls(root), mountpoint, nothreads=True, foreground=True)
+def main(mountpoint, root, cls=Passthrough, debug=False):
+    try:
+        FUSE(cls(root), mountpoint, nothreads=True, foreground=True, debug=debug)
+    except RuntimeError as e:
+
+        logger.error("FUSE call failed - is it already mounted?:")
+        exit(-1)
 
 if __name__ == '__main__':
     main(sys.argv[2], sys.argv[1])

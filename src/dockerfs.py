@@ -6,12 +6,13 @@ import logging
 import os
 import sys
 import errno
-from typing import Final
+from typing import Final, List, NoReturn, Optional
+from color_logger import ColourFormatter, getColourStreamHandler
+
 
 # print(sys.path)
 
 from fuse import FUSE, FuseOSError, Operations
-from color_logger import ColourFormatter
 from passthrough_ro import PassthroughRO, main
 from caching_docker_context import CachingDockerContext
 
@@ -22,7 +23,6 @@ from caching_docker_context import CachingDockerContext
 # EIO - io error
 
 ROOT_LOGGER : Final = logging.getLogger()
-ColourFormatter.add_handler_to(logging.getLogger())
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
@@ -69,7 +69,7 @@ class DockerFS(PassthroughRO):
         logger.debug(f"getattr(self, {path=}, {fh=})")
         if path == "/":
             return self.docker.getattr_()
-        parts = path.split('/')
+        parts : List[Optional[str]] = path.split('/')
         if len(parts) == 2:
             parts.append(None)
         assert len(parts) == 3, "Only expect docker object type and (optionally) name"
@@ -80,6 +80,7 @@ class DockerFS(PassthroughRO):
             raise FuseOSError(errno.ENOENT)
 
         result = method(self.docker, parts[2])
+        assert isinstance(result, dict), "getattr must return a dict"
         return result
 
 
@@ -87,7 +88,7 @@ class DockerFS(PassthroughRO):
         logger.debug(f"readdir(self, {path=}, {fh=})")
         assert path[0] == '/'
         path = path[1:]
-        reader = getattr(CachingDockerContext, f"list_{path}")
+        reader = getattr(CachingDockerContext, f"readdir_{path}")
         if not reader:
           logger.warning(f"readdir(self, {path=}, {fh=}): Path is not registered.")
           raise FuseOSError(errno.ENOENT)
@@ -96,34 +97,43 @@ class DockerFS(PassthroughRO):
         yield ".."
         yield from reader(self.docker)
 
+
     def readlink(self, path):
         logger.debug(f"readlink(self, {path=})")
-        pathname = os.readlink(self._full_path(path))
-        if pathname.startswith("/"):
-            # Path name is absolute, sanitize it.
-            return os.path.relpath(pathname, self.root)
-        else:
-            return pathname
+        return self.docker.readlink(path)
 
 
     # File methods
     # ============
 
-    def open(self, path: str, flags):
+    def open(self, path: str, flags: int):
         logger.debug(f"open(self, {path=}, {flags=})")
-        full_path = self._full_path(path)
-        return os.open(full_path, flags)
+        fd = self.docker.open(path, flags)
+        logger.debug(f"open(self, {path=}, {flags=}) -> {fd}")
+        return fd
+
 
     def read(self, path: str, length: int, offset, fh):
         logger.debug(f"read(self, {path=}, {length=}, {offset=}, {fh=})")
-        os.lseek(fh, offset, os.SEEK_SET)
-        return os.read(fh, length)
+        return self.docker.read(path, length, offset, fh)
+
+
+    def flush(self, path: str, fh) -> None:
+        logger.warning(f"flush(self, {path=}, {fh=}) - RO file-system, not expecting to flush")
+
 
     def release(self, path: str, fh):
         logger.debug(f"release(self, {path=}, {fh=})")
-        return os.close(fh)
+        return self.docker.release(path, fh)
 
 
 if __name__ == '__main__':
+    COLOUR_HANDLER : Final = getColourStreamHandler()
+    ROOT_LOGGER.addHandler(COLOUR_HANDLER)
+    for h in ROOT_LOGGER.handlers:
+        if h is not COLOUR_HANDLER:
+            ROOT_LOGGER.removeHandler(h)
+    ROOT_LOGGER.setLevel(logging.DEBUG)
+    
     main(sys.argv[2], sys.argv[1], DockerFS)
 

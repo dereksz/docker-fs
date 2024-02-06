@@ -161,8 +161,8 @@ class Passthrough(Operations):
         logger.debug(f"release(self, {path=}, {fh=})")
         return os.close(fh)
 
-    def fsync(self, path: str, fdatasync, fh):
-        logger.debug(f"fsync(self, {path=}, {fdatasync=}, {fh=})")
+    def fsync(self, path: str, datasync, fh):
+        logger.debug(f"fsync(self, {path=}, {datasync=}, {fh=})")
         return self.flush(path, fh)
 
 

@@ -30,7 +30,7 @@ def file_attr_to_str(attr: FileAttra) -> str:
     attr = attr.copy()
     lines : List[str] = []
     for keys, formatter in (
-        (("st_ctime", "st_mtime", "st_atime",), 
+        (("st_ctime", "st_mtime", "st_atime", "st_birthtime",), 
             lambda timet: datetime.fromtimestamp(timet).isoformat()),
         (("st_mode",), oct),
     ):
@@ -227,6 +227,7 @@ class CachingDockerContext():
         attr["st_ctime"] = ctime
         attr["st_mtime"] = ctime
         attr["st_atime"] = ctime
+        # attr["st_birthtime"] = ctime
         attr["st_size"] = size or 1000 # TODO: fake for fuse-t
         return attr
         

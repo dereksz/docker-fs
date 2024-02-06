@@ -38,8 +38,14 @@ class DockerFS(Operations):
         logger.debug("FUSE op being called: %s%s", op, (*args,))
         if not hasattr(self, op):
             raise FuseOSError(errno.EFAULT)
-        return getattr(self, op)(*args)
-
+        try:
+            result = getattr(self, op)(*args)
+            logging.debug("FUSE op returned: %s() -> %s", op, result)
+            return result
+        except Exception as e:
+            logger.exception("Exception calling %s: %s", op, e, exc_info=False, stack_info=False)
+            raise
+    
 
     # Filesystem methods
     # ==================
@@ -143,6 +149,6 @@ if __name__ == '__main__':
 
     fuse_log = logging.getLogger("fuse")
     fuse_log.addHandler(COLOUR_HANDLER)
-    fuse_log.setLevel(logging.DEBUG)
+    fuse_log.setLevel(logging.INFO)
 
-    main(sys.argv[2], sys.argv[1], DockerFS, sys.argv[3] if len(sys.argv) > 3 else None, debug=True)
+    main(sys.argv[2], sys.argv[1], DockerFS, sys.argv[3] if len(sys.argv) > 3 else None, debug=False)

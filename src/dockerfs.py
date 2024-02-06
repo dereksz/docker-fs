@@ -26,12 +26,19 @@ ROOT_LOGGER : Final = logging.getLogger()
 logger = logging.getLogger(__name__)
 
 
-class DockerFS(PassthroughRO):
+class DockerFS(Operations):
     """This is s FUSE file-system driver for docker assets."""
 
     def __init__(self, root, socket: Optional[str] = None):
-        super().__init__(root)
+        super().__init__()
         self.docker = CachingDockerContext(socket)
+
+
+    def __call__(self, op, *args):
+        logger.debug("FUSE op being called: %s%s", op, (*args,))
+        if not hasattr(self, op):
+            raise FuseOSError(errno.EFAULT)
+        return getattr(self, op)(*args)
 
 
     # Filesystem methods
@@ -125,12 +132,17 @@ class DockerFS(PassthroughRO):
 
 if __name__ == '__main__':
     COLOUR_HANDLER : Final = getColourStreamHandler()
+    COLOUR_HANDLER.setLevel(logging.DEBUG)
     ROOT_LOGGER.addHandler(COLOUR_HANDLER)
     for h in ROOT_LOGGER.handlers:
         if h is not COLOUR_HANDLER:
             ROOT_LOGGER.removeHandler(h)
 
     ROOT_LOGGER.setLevel(logging.INFO)
-    logger.setLevel(logging.INFO)
+    logger.setLevel(logging.DEBUG)
+
+    fuse_log = logging.getLogger("fuse")
+    fuse_log.addHandler(COLOUR_HANDLER)
+    fuse_log.setLevel(logging.DEBUG)
 
     main(sys.argv[2], sys.argv[1], DockerFS, sys.argv[3] if len(sys.argv) > 3 else None, debug=True)

@@ -14,7 +14,7 @@ class ColourFormatter(logging.Formatter):
     format_template = '%(levelname)s - %(name)s - %(funcName)s - %(message)s - (%(pathname)s:%(lineno)d)'
 
     FORMATS: tuple[tuple[int, str], ...] = (
-        (logging.DEBUG, grey + format_template + reset),
+        (logging.DEBUG, blue + format_template + reset),
         (logging.INFO, cyan + format_template + reset),
         (logging.WARNING, yellow + format_template + reset),
         (logging.ERROR, red + format_template + reset),

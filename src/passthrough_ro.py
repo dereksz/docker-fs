@@ -80,8 +80,7 @@ class PassthroughRO(Passthrough):
         raise FuseOSError(errno.EROFS)
 
     def statfs(self, path):
-        logger.warning(f"statfs(self, {path=}) - Not Supported - ENOTSUP")
-        raise FuseOSError(errno.ENOTSUP)
+        return {}
 
     def unlink(self, path):
         logger.error(f"unlink(self, {path=}) - requesting changes on RO file-system")

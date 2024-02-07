@@ -1,0 +1,17 @@
+{
+	// See https://go.microsoft.com/fwlink/?LinkId=827846
+	// for the documentation about the extensions.json format
+	"recommendations": [
+        // Editing
+		"EditorConfig.EditorConfig",
+        "GuidoTapia2.unicode-math-vscode",
+        // Python
+        "ms-python.python",
+        // Markdown and graphs
+        "yzhang.markdown-all-in-one",
+        "jebbs.plantuml",
+        // Makefiles
+        "lfm.vscode-makefile-term",
+        "akecel.makefiles-runner",
+	]
+}

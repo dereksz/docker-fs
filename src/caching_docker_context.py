@@ -148,16 +148,13 @@ class CachingDockerContext():
           'st_atime': atime or now_ish,
           'st_ctime': ctime or now_ish,
           'st_uid': 0, # 0 == root
-          'st_gid': 0, # 0 == root
+          'st_gid': 0, # 0 == root / wheel
           'st_mode': mode if mode else S_IRALL | (S_IFREG if is_file else S_IFDIR | S_IXALL),
           'st_mtime': mtime or now_ish,
           'st_nlink': 1 if is_file else 2,
         }
         # if size:
         attr['st_size'] = size or 1000
-        if sys.platform == "darwin":
-            attr["st_flags"] = 0  # user defined flags for file
-
         return attr
 
 
@@ -219,6 +216,7 @@ class CachingDockerContext():
         attr = self.getattr_(is_file=False).copy()
         ctime = attr["st_ctime"]
         size = 0
+        count = 0
         for model in collection.list(**list_kwargs):
             attrs = model.attrs
             created : str = attrs.get("Created") or attrs.get("CreatedAt")
@@ -226,11 +224,14 @@ class CachingDockerContext():
             if this_ctime > ctime:
                 ctime = this_ctime
             size += attrs.get("Size", 0)
+            count += 1
         attr["st_ctime"] = ctime
         attr["st_mtime"] = ctime
         attr["st_atime"] = ctime
-        # attr["st_birthtime"] = ctime
         attr["st_size"] = size or 1000 # TODO: fake for fuse-t
+        if sys.platform == "darwin":
+            attr["st_birthtime"] = ctime
+            attr["st_nlink"] += count
         return attr
 
 

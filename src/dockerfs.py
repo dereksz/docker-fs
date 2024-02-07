@@ -86,10 +86,6 @@ class DockerFS(Operations):
             result = method(self.docker, parts[2])
 
         assert isinstance(result, dict), "getattr must return a dict"
-        result["st_blocksize"] = 512
-        result["st_blocks"] = (result["st_size"] - 1) // result["st_blocksize"] + 1
-        result["st_dev"] = 1
-        result["st_ino"] = 5
         logger.info(f"getattr(self, {path=}, {fh=}) ->\n%s\n", file_attr_to_str(result))
         return result
 
@@ -105,7 +101,7 @@ class DockerFS(Operations):
 
         yield "."
         yield ".."
-        files = reader(self.docker)
+        files = list(reader(self.docker))
         logger.info(f"readdir(self, {path=}, {fh=}) found %i files", len(files))
         yield from files
 

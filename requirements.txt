@@ -1,2 +1,2 @@
-fusepy
+fusepy<4
 docker

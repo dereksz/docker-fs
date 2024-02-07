@@ -12,13 +12,13 @@ ls:
 	docker image ls --format jsoncd ../..
 
 .venv:
-	python3.11 -m venv --system-site-packages .venv 
+	python3.11 -m venv --system-site-packages .venv
 
 setup: .venv
 	source .venv/bin/activate && \
 	pip install -r requirements.txt && \
 	zsh -i
-	
+
 
 install-clean:
 	sudo rm /usr/sbin/mount.dockerfs

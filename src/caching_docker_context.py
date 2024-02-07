@@ -140,7 +140,9 @@ class CachingDockerContext():
         mtime: Optional[float] = None,
         size: int = 1000,
     ) -> FileAttra:
-        """Called for the root of the file system, and as a base for when getting file and directory attras."""
+        """Called for the root of the file system,
+        and as a base for when getting file and directory attras.
+        """
         now_ish = float(1707020058.716742869)
         attr : FileAttra = {
           'st_atime': atime or now_ish,
@@ -167,7 +169,7 @@ class CachingDockerContext():
             model = collection.get(name)
         except docker.errors.NotFound as e:
             logger.warning("Can't find '%s'.", name)
-            raise FuseOSError(errno.ENOENT)
+            raise FuseOSError(errno.ENOENT) from e
         return model
 
 
@@ -232,7 +234,12 @@ class CachingDockerContext():
         return attr
 
 
-    def _getattr(self, collection: DockerCollection, name: Optional[str], **list_kwargs) -> FileAttra:
+    def _getattr(
+            self,
+            collection: DockerCollection,
+            name: Optional[str],
+            **list_kwargs
+    ) -> FileAttra:
         attr = (
             self._getattr_from_model(collection, name)
             if name else

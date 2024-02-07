@@ -61,6 +61,7 @@ class DockerFS(Operations):
         logger.debug(f"getattr(self, {path=}, {fh=})")
         if path == "/":
             result = self.docker.getattr_()
+            result["st_nlink"] = len(CachingDockerContext.ROOT_FOLDERS)
         else:
             parts : List[Optional[str]] = path.split('/')
             if len(parts) == 2:

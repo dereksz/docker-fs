@@ -40,48 +40,50 @@ class DockerFS(Operations):
             raise FuseOSError(errno.EFAULT)
         try:
             result = getattr(self, op)(*args)
-            logging.debug("FUSE op returned: %s() -> %s", op, result)
+            logging.info("FUSE op returned: %s() -> %s", op, result)
             return result
         except Exception as e:
             logger.exception("Exception calling %s: %s", op, e, exc_info=False, stack_info=False)
             raise
-    
+
 
     # Filesystem methods
     # ==================
 
-    def access(self, path: str, mode: int):
-        if mode in (os.R_OK, os.F_OK):
-            logger.debug(f"access(self, {path=}, {mode=})")
+    def access(self, path: str, amode: int):
+        if amode in (os.R_OK, os.F_OK):
+            logger.info(f"access(self, {path=}, {amode=}) -> granted")
             return 0
-        logger.warning(f"access(self, {path=}, {mode=})")
+        logger.warning(f"access(self, {path=}, {amode=}): amode not permitted")
         raise FuseOSError(errno.EACCES)
 
     def getattr(self, path: str, fh=None):
         logger.debug(f"getattr(self, {path=}, {fh=})")
         if path == "/":
-            return self.docker.getattr_()
-        parts : List[Optional[str]] = path.split('/')
-        if len(parts) == 2:
-            parts.append(None)
-        if (
-            len(parts) != 3
-            or parts[0] != ""
-            or parts[1] not in (
-                "volumes",
-                "images",
-                "containers"
-            )
-        ):
-            logger.warning(f"getattr(self, {path=}, {fh=}): Path is not registered.")
-            raise FuseOSError(errno.ENOENT)
+            result = self.docker.getattr_()
+        else:
+            parts : List[Optional[str]] = path.split('/')
+            if len(parts) == 2:
+                parts.append(None)
+            if (
+                len(parts) != 3
+                or parts[0] != ""
+                or parts[1] not in (
+                    "volumes",
+                    "images",
+                    "containers"
+                )
+            ):
+                logger.warning(f"getattr(self, {path=}, {fh=}): Path is not registered.")
+                raise FuseOSError(errno.ENOENT)
 
-        method = getattr(CachingDockerContext, f"getattr_{parts[1]}")
-        if not method:
-            logger.warning(f"getattr(self, {path=}, {fh=}): Path is not registered.")
-            raise FuseOSError(errno.ENOENT)
+            method = getattr(CachingDockerContext, f"getattr_{parts[1]}")
+            if not method:
+                logger.warning(f"getattr(self, {path=}, {fh=}): Path is not registered.")
+                raise FuseOSError(errno.ENOENT)
 
-        result = method(self.docker, parts[2])
+            result = method(self.docker, parts[2])
+
         assert isinstance(result, dict), "getattr must return a dict"
         result["st_blocksize"] = 512
         result["st_blocks"] = (result["st_size"] - 1) // result["st_blocksize"] + 1

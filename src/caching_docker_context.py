@@ -30,7 +30,7 @@ def file_attr_to_str(attr: FileAttra) -> str:
     attr = attr.copy()
     lines : List[str] = []
     for keys, formatter in (
-        (("st_ctime", "st_mtime", "st_atime", "st_birthtime",), 
+        (("st_ctime", "st_mtime", "st_atime", "st_birthtime",),
             lambda timet: datetime.fromtimestamp(timet).isoformat()),
         (("st_mode",), oct),
     ):
@@ -45,19 +45,19 @@ def file_attr_to_str(attr: FileAttra) -> str:
 
 
 class DockerModel(_DockerModel):
-    
+
     tags: Iterable[str]
-    
+
 
 class CachingDockerContext():
-  
+
     client: docker.client.DockerClient
     volume_symlinks: Dict[str, str]
     image_symlinks: Dict[str, str]
     container_symlinks: Dict[str, str]
     file_desciptors: List[Optional[DockerModel]]
-  
-    # Linux: 'unix://var/run/docker.sock' 
+
+    # Linux: 'unix://var/run/docker.sock'
     # Mac colima: "unix:~/.colima/default/docker.sock"
     def __init__(self, base_url: str | None = None):
         self.client = docker.client.DockerClient(base_url=base_url)
@@ -65,17 +65,17 @@ class CachingDockerContext():
         self.image_symlinks = {}
         self.container_symlinks = {}
         self.file_desciptors = [None] * 100
-        
+
     ROOT_FOLDERS: Final = (
       ".",
       "..",
       "volumes",
       "images",
       "containers",
-    ) 
-    
+    )
+
     # sym-link calls
-    
+
     def readlink(self, name: str) -> str:
         parts = name.split('/')
         assert len(parts) == 3
@@ -87,12 +87,12 @@ class CachingDockerContext():
         }[parts[1]]
         dest_name = symlinks[parts[2]]
         return dest_name
-    
+
     # `readdir` calls
-    
+
     def readdir_(self) -> Generator[str,None,None]:
         yield from self.__class__.ROOT_FOLDERS
-        
+
     def readdir_volumes(self) -> Generator[str,None,None]:
         syms : Dict[str, str] = {}
         self.volume_symlinks = syms
@@ -127,8 +127,8 @@ class CachingDockerContext():
             syms[name] = id
             yield name
             yield id
-            
-        
+
+
     # `getattr` calls
 
     def getattr_(
@@ -139,8 +139,8 @@ class CachingDockerContext():
         ctime: Optional[float] = None,
         mtime: Optional[float] = None,
         size: int = 1000,
-        nlink: int = 1,
     ) -> FileAttra:
+        """Called for the root of the file system, and as a base for when getting file and directory attras."""
         now_ish = float(1707020058.716742869)
         attr : FileAttra = {
           'st_atime': atime or now_ish,
@@ -149,7 +149,7 @@ class CachingDockerContext():
           'st_gid': 0, # 0 == root
           'st_mode': mode if mode else S_IRALL | (S_IFREG if is_file else S_IFDIR | S_IXALL),
           'st_mtime': mtime or now_ish,
-          'st_nlink': nlink,
+          'st_nlink': 1 if is_file else 2,
         }
         # if size:
         attr['st_size'] = size or 1000
@@ -158,38 +158,38 @@ class CachingDockerContext():
 
         return attr
 
-       
+
     def _find_from_name(self, collection: DockerCollection, name: str) -> DockerModel:
         model: DockerModel
         if name[0] == '.':
-            name = name[1:] # "sha256:" + 
+            name = name[1:] # "sha256:" +
         try:
             model = collection.get(name)
         except docker.errors.NotFound as e:
             logger.warning("Can't find '%s'.", name)
             raise FuseOSError(errno.ENOENT)
         return model
-        
+
 
     def _find_from_path(self, path: str) -> DockerModel:
         parts = path.split('/')
         assert len(parts) == 3
         assert parts[0] == ''
-        
+
         collection: DockerCollection
-        
+
         if parts[1] == "volumes":
             collection = self.client.volumes
         elif parts[1] == "images":
-            collection - self.client.images
+            collection = self.client.images
         elif parts[1] == "containers":
             collection = self.client.containers
         else:
             raise FuseOSError(errno.ENOENT)
-        
+
         return self._find_from_name(collection=collection, name=parts[2])
-    
-    
+
+
     def _getattr_from_model(self, collection: DockerCollection, name: str) -> FileAttra:
         model = self._find_from_name(collection, name)
         attr = self.getattr_(is_file=True).copy()
@@ -203,16 +203,16 @@ class CachingDockerContext():
         attr["st_size"] = size
         if name and name[0] != '.': # probably a sym-link
             if (
-                name in self.volume_symlinks.keys()
-                or name in self.image_symlinks.keys()
-                or name in self.container_symlinks.keys()
+                name in self.volume_symlinks
+                or name in self.image_symlinks
+                or name in self.container_symlinks
             ):
                 mode: int = int(attr["st_mode"])
                 mode = S_IMODE(mode) | S_IFLNK
                 attr["st_mode"] = mode
         return attr
 
-       
+
     def _getattr_from_collection(self, collection: DockerCollection, **list_kwargs) -> FileAttra:
         attr = self.getattr_(is_file=False).copy()
         ctime = attr["st_ctime"]
@@ -230,7 +230,7 @@ class CachingDockerContext():
         # attr["st_birthtime"] = ctime
         attr["st_size"] = size or 1000 # TODO: fake for fuse-t
         return attr
-        
+
 
     def _getattr(self, collection: DockerCollection, name: Optional[str], **list_kwargs) -> FileAttra:
         attr = (
@@ -239,7 +239,7 @@ class CachingDockerContext():
             self._getattr_from_collection(collection, **list_kwargs)
         )
         return attr
-        
+
     def getattr_volumes(self, name: Optional[str]) -> FileAttra:
         return self._getattr(self.client.volumes, name)
 
@@ -251,7 +251,7 @@ class CachingDockerContext():
 
 
     # Reading files
-    
+
     def open(self, path: str, flags: int) -> int:
         # Find first empty file desciptor
         logger.info(f"open(self, {path=}, {flags=})")
@@ -271,4 +271,3 @@ class CachingDockerContext():
         assert self.file_desciptors[fh] is not None
         self.file_desciptors[fh] = None
         return 0
-    

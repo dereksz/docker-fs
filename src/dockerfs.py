@@ -13,8 +13,7 @@ from color_logger import ColourFormatter, getColourStreamHandler
 # print(sys.path)
 
 from fuse import FUSE, FuseOSError, Operations
-from passthrough_ro import PassthroughRO, main
-from caching_docker_context import CachingDockerContext, file_attr_to_str
+from docker_context import DockerContext, file_attr_to_str
 
 # For error numbers, see https://android.googlesource.com/kernel/lk/+/dima/for-travis/include/errno.h
 # ENOTSUP - not suppoerted
@@ -31,7 +30,7 @@ class DockerFS(Operations):
 
     def __init__(self, root, socket: Optional[str] = None):
         super().__init__()
-        self.docker = CachingDockerContext(socket)
+        self.docker = DockerContext(socket)
 
 
     def __call__(self, op, *args):
@@ -61,7 +60,7 @@ class DockerFS(Operations):
         logger.debug(f"getattr(self, {path=}, {fh=})")
         if path == "/":
             result = self.docker.getattr_()
-            result["st_nlink"] = len(CachingDockerContext.ROOT_FOLDERS)
+            result["st_nlink"] = len(DockerContext.ROOT_FOLDERS)
         else:
             parts : List[Optional[str]] = path.split('/')
             if len(parts) == 2:
@@ -78,7 +77,7 @@ class DockerFS(Operations):
                 logger.warning(f"getattr(self, {path=}, {fh=}): Path is not registered.")
                 raise FuseOSError(errno.ENOENT)
 
-            method = getattr(CachingDockerContext, f"getattr_{parts[1]}")
+            method = getattr(DockerContext, f"getattr_{parts[1]}")
             if not method:
                 logger.warning(f"getattr(self, {path=}, {fh=}): Path is not registered.")
                 raise FuseOSError(errno.ENOENT)
@@ -94,7 +93,7 @@ class DockerFS(Operations):
         # logger.debug(f"readdir(self, {path=}, {fh=})")
         assert path[0] == '/'
         path = path[1:]
-        reader = getattr(CachingDockerContext, f"readdir_{path}")
+        reader = getattr(DockerContext, f"readdir_{path}")
         if not reader:
             logger.warning(f"readdir(self, {path=}, {fh=}): Path is not registered.")
             raise FuseOSError(errno.ENOENT)
@@ -134,6 +133,13 @@ class DockerFS(Operations):
         logger.debug(f"release(self, {path=}, {fh=})")
         return self.docker.release(path, fh)
 
+
+def main(mountpoint, root, cls=DockerFS, socket: Optional[str] = None, debug=False):
+    try:
+        FUSE(cls(root, socket), mountpoint, nothreads=True, foreground=True, debug=debug)
+    except RuntimeError as e:
+        logger.error("FUSE call failed - is it already mounted?  %s", e)
+        sys.exit(-1)
 
 if __name__ == '__main__':
     COLOUR_HANDLER : Final = getColourStreamHandler()

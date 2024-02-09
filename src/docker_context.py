@@ -49,7 +49,7 @@ class DockerModel(_DockerModel):
     tags: Iterable[str]
 
 
-class CachingDockerContext():
+class DockerContext():
 
     client: docker.client.DockerClient
     volume_symlinks: Dict[str, str]

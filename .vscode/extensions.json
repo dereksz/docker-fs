@@ -7,6 +7,8 @@
         "GuidoTapia2.unicode-math-vscode",
         // Python
         "ms-python.python",
+        // toml
+        "tamasfe.even-better-toml",
         // Markdown and graphs
         "yzhang.markdown-all-in-one",
         "jebbs.plantuml",

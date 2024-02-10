@@ -95,7 +95,7 @@ When using `docker compose`, the assets that are built are
 predominantly copnfigured by only a small section of the 
 `docker-compose.yml` file, that under `/services/<name>`
 (as well as potentioally other sections like `/network`
-and `/volumes` - but these will likely chage far less
+and `/volumes` - but these will likely change far less
 frequently).
 
 With this information, rebuilds are only necessary if

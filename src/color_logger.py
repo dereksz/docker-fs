@@ -1,6 +1,9 @@
+"""Defines a ColourFormatter for loging to stdout/stderr."""
 import logging
+import sys
 
 class ColourFormatter(logging.Formatter):
+    """Defines a ColourFormatter for loging to stdout/stderr."""
 
     red = "\x1b[31;20m"
     bold_red = "\x1b[31;1m"
@@ -11,7 +14,8 @@ class ColourFormatter(logging.Formatter):
     cyan = "\x1b[36;20m"
     grey = "\x1b[37;20m"
     reset = "\x1b[0m"
-    format_template = '%(levelname)s - %(name)s - %(funcName)s - %(message)s - (%(pathname)s:%(lineno)d)'
+    format_template = \
+        '%(levelname)s - %(name)s - %(funcName)s - %(message)s - (%(pathname)s:%(lineno)d)'
 
     FORMATS: tuple[tuple[int, str], ...] = (
         (logging.DEBUG, blue + format_template + reset),
@@ -22,6 +26,7 @@ class ColourFormatter(logging.Formatter):
     )
 
     def __init__(self, *args, **kwargs):
+        super().__init__()
         self._args = args
         self._kwargs = kwargs
         self._formatters: tuple[tuple[int, logging.Formatter], ...] = tuple(
@@ -39,24 +44,24 @@ class ColourFormatter(logging.Formatter):
         result =  formatter.format(record)
         return result
 
-      
-    @classmethod
-    def add_handler_to(cls, logger: logging.Logger, stream=None, level=logging.DEBUG) -> logging.Logger:
-        h = logging.StreamHandler(stream)
-        h.setLevel(level)
-        h.setFormatter(ColourFormatter())
-        logger.addHandler(h)
-        return logger
 
-
-def getColourStreamHandler(stream=None, level=logging.DEBUG) -> logging.StreamHandler:
+def make_color_stream_handler(stream=sys.stdout, level=logging.DEBUG):
+    """Makes a stream handler with color formatter."""
     h = logging.StreamHandler(stream)
     h.setLevel(level)
     h.setFormatter(ColourFormatter())
     return h
 
 
-def getColorLogger(name: str) -> logging.Logger:
-    l = logging.getLogger(name)
-    ColourFormatter.add_handler_to(l)
-    return l
+def add_colour_logging_to(
+        logger: logging.Logger | str | None,
+        stream=sys.stdout,
+        level=logging.DEBUG,
+) -> logging.Logger:
+    """Creates stream handler with colour formatted and attaches it to the given logger."""
+    if not isinstance(logger, logging.Logger):
+        logger = logging.getLogger(logger)
+    h = make_color_stream_handler(stream=stream, level=level)
+    logger.addHandler(h)
+    logger.setLevel(level)
+    return logger

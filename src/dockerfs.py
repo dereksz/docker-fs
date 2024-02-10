@@ -1,159 +1,128 @@
 #!/usr/bin/env python3
+"""Entry script for DockerFS."""
 
-# From: https://www.stavros.io/posts/python-fuse-filesystem/
-#       https://github.com/skorokithakis/python-fuse-sample
-import logging
 import os
+from stat import S_IFMT, S_IFDIR, S_IFIFO, S_IFSOCK
 import sys
-import errno
-from typing import Final, List, NoReturn, Optional
-from color_logger import ColourFormatter, getColourStreamHandler
+import logging
+import argparse
+from typing import Final
+
+from fuse import FUSE
+
+from color_logger import make_color_stream_handler
+from docker_fuse_operations import DockerOperations
+
+ROOT_LOGGER: Final = logging.getLogger()
+FUSE_LOGGER: Final = logging.getLogger("fuse")
+LOGGER: Final = logging.getLogger(__name__)
 
 
-# print(sys.path)
-
-from fuse import FUSE, FuseOSError, Operations
-from docker_context import DockerContext, file_attr_to_str
-
-# For error numbers, see https://android.googlesource.com/kernel/lk/+/dima/for-travis/include/errno.h
-# ENOTSUP - not suppoerted
-# EROFS - Read only file system
-# EACCES - Permission denied
-# EIO - io error
-
-ROOT_LOGGER : Final = logging.getLogger()
-logger = logging.getLogger(__name__)
-
-
-class DockerFS(Operations):
-    """This is s FUSE file-system driver for docker assets."""
-
-    def __init__(self, root, socket: Optional[str] = None):
-        super().__init__()
-        self.docker = DockerContext(socket)
-
-
-    def __call__(self, op, *args):
-        logger.debug("FUSE op being called: %s%s", op, (*args,))
-        if not hasattr(self, op):
-            raise FuseOSError(errno.EFAULT)
+def check_socket_or_port(arg: str) -> str:
+    """Checks the arg is a unix socker of a TCP/IP port / HTTP address."""
+    parts = arg.split("://", maxsplit=2)
+    if "http" in parts[0].lower():
+        return arg
+    # Deal with when no protocol
+    if len(parts) == 1:
+        parts = ["unix", arg]
+    if parts[0] == "unix":
         try:
-            result = getattr(self, op)(*args)
-            logging.info("FUSE op returned: %s() -> %s", op, result)
-            return result
+            stat = os.stat(parts[1])
         except Exception as e:
-            logger.exception("Exception calling %s: %s", op, e, exc_info=False, stack_info=False)
-            raise
-
-
-    # Filesystem methods
-    # ==================
-
-    def access(self, path: str, amode: int):
-        if amode in (os.R_OK, os.F_OK):
-            logger.info(f"access(self, {path=}, {amode=}) -> granted")
-            return 0
-        logger.warning(f"access(self, {path=}, {amode=}): amode not permitted")
-        raise FuseOSError(errno.EACCES)
-
-    def getattr(self, path: str, fh=None):
-        logger.debug(f"getattr(self, {path=}, {fh=})")
-        if path == "/":
-            result = self.docker.getattr_()
-            result["st_nlink"] = len(DockerContext.ROOT_FOLDERS)
+            LOGGER.warning("`stat` failed -> %s", e)
         else:
-            parts : List[Optional[str]] = path.split('/')
-            if len(parts) == 2:
-                parts.append(None)
-            if (
-                len(parts) != 3
-                or parts[0] != ""
-                or parts[1] not in (
-                    "volumes",
-                    "images",
-                    "containers"
-                )
-            ):
-                logger.warning(f"getattr(self, {path=}, {fh=}): Path is not registered.")
-                raise FuseOSError(errno.ENOENT)
+            mode = stat.st_mode
+            LOGGER.debug("check_socket_or_port: %s mode: %#08o", arg, mode)
+            if S_IFMT(mode) in (S_IFIFO, S_IFSOCK):
+                return "unix://" + parts[1]
 
-            method = getattr(DockerContext, f"getattr_{parts[1]}")
-            if not method:
-                logger.warning(f"getattr(self, {path=}, {fh=}): Path is not registered.")
-                raise FuseOSError(errno.ENOENT)
-
-            result = method(self.docker, parts[2])
-
-        assert isinstance(result, dict), "getattr must return a dict"
-        logger.info(f"getattr(self, {path=}, {fh=}) ->\n%s\n", file_attr_to_str(result))
-        return result
+    raise argparse.ArgumentTypeError(f"Source does not exist or is not supported: {arg}")
 
 
-    def readdir(self, path: str, fh):
-        # logger.debug(f"readdir(self, {path=}, {fh=})")
-        assert path[0] == '/'
-        path = path[1:]
-        reader = getattr(DockerContext, f"readdir_{path}")
-        if not reader:
-            logger.warning(f"readdir(self, {path=}, {fh=}): Path is not registered.")
-            raise FuseOSError(errno.ENOENT)
-
-        yield "."
-        yield ".."
-        files = list(reader(self.docker))
-        logger.info(f"readdir(self, {path=}, {fh=}) found %i files", len(files))
-        yield from files
-
-
-    def readlink(self, path):
-        logger.debug(f"readlink(self, {path=})")
-        return self.docker.readlink(path)
-
-
-    # File methods
-    # ============
-
-    def open(self, path: str, flags: int):
-        logger.debug(f"open(self, {path=}, {flags=})")
-        fd = self.docker.open(path, flags)
-        logger.debug(f"open(self, {path=}, {flags=}) -> {fd}")
-        return fd
-
-
-    def read(self, path: str, length: int, offset, fh):
-        logger.debug(f"read(self, {path=}, {length=}, {offset=}, {fh=})")
-        return self.docker.read(path, length, offset, fh)
-
-
-    def flush(self, path: str, fh) -> None:
-        logger.warning(f"flush(self, {path=}, {fh=}) - RO file-system, not expecting to flush")
-
-
-    def release(self, path: str, fh):
-        logger.debug(f"release(self, {path=}, {fh=})")
-        return self.docker.release(path, fh)
-
-
-def main(mountpoint, root, cls=DockerFS, socket: Optional[str] = None, debug=False):
+def check_folder(arg: str) -> str:
+    """Checks the arg is an existing folder."""
     try:
-        FUSE(cls(root, socket), mountpoint, nothreads=True, foreground=True, debug=debug)
+        stat = os.stat(arg)
+    except Exception as e:
+        LOGGER.warning("`stat` failed -> %s", e)
+    else:
+        mode = stat.st_mode
+        LOGGER.debug("check_folder: %s mode: %#08o", arg, mode)
+        if S_IFMT(mode) in (S_IFDIR,):
+            return arg
+
+    raise argparse.ArgumentTypeError(f"Source does not exist or is not supported: {arg}")
+
+
+def make_parser():
+    """Makes Parser resdy to parses args passed to script."""
+
+    parser = argparse.ArgumentParser(
+        prog='DockerFS',
+        description='Creates virtual file system exposing Docker asset names and dates.',
+    )
+    parser.add_argument(
+        "mount_point", nargs="?", type=check_folder, default=".dockerfs",
+        help="Mount point for docker virtual file system.  Defaults to `.dockerfs`."
+    )
+    parser.add_argument(
+        "docker_source", nargs="?", type=check_socket_or_port,
+        help="Socket or port to connect to docker, e.g. `unix:///var/run/docker.sock`.  "
+             "Will ask and use dockers 'Host' from the default context is not supplied."
+    )
+    parser.add_argument("--verbose", "-v", action='store_true', help="Enables DEBUG level tracing")
+    parser.add_argument("--quiet", "-q", action='store_true', help="Drops to WARNING level tracing")
+    parser.add_argument("--debug-fuse", action='store_true',
+                        help="Enables debugging in fusepy library.")
+
+    return parser
+
+
+def setup_loggers(): # pylint: disable=unused-argument
+    """Setup loggers."""
+    for h in ROOT_LOGGER.handlers:
+        ROOT_LOGGER.removeHandler(h)
+    color_handler: Final = make_color_stream_handler(level=logging.DEBUG)
+
+    ROOT_LOGGER.addHandler(color_handler)
+    FUSE_LOGGER.addHandler(color_handler)
+    LOGGER.addHandler(color_handler)
+
+    ROOT_LOGGER.setLevel(logging.DEBUG)
+    FUSE_LOGGER.setLevel(logging.DEBUG)
+    LOGGER.setLevel(logging.DEBUG)
+
+
+def setup_log_levels(args: argparse.Namespace): # pylint: disable=unused-argument
+    """Setup logging levels per arguments."""
+    log_level: Final = (
+        logging.DEBUG if args.verbose
+        else logging.WARNING if args.quiet
+        else logging.INFO
+    )
+    ROOT_LOGGER.setLevel(log_level)
+    FUSE_LOGGER.setLevel(log_level)
+
+
+def main():
+    """Main."""
+    setup_loggers()
+    parser = make_parser()
+    args = parser.parse_args()
+    setup_log_levels(args)
+    try:
+        FUSE(
+            operations=DockerOperations(args.docker_source),
+            mountpoint=args.mount_point,
+            nothreads=True,
+            foreground=True,
+            debug=args.debug_fuse,
+        )
     except RuntimeError as e:
-        logger.error("FUSE call failed - is it already mounted?  %s", e)
+        LOGGER.error("FUSE call failed - is it already mounted?  %s", e)
         sys.exit(-1)
 
+
 if __name__ == '__main__':
-    COLOUR_HANDLER : Final = getColourStreamHandler()
-    COLOUR_HANDLER.setLevel(logging.DEBUG)
-    ROOT_LOGGER.addHandler(COLOUR_HANDLER)
-    for h in ROOT_LOGGER.handlers:
-        if h is not COLOUR_HANDLER:
-            ROOT_LOGGER.removeHandler(h)
-
-    ROOT_LOGGER.setLevel(logging.INFO)
-    logger.setLevel(logging.DEBUG)
-
-    fuse_log = logging.getLogger("fuse")
-    fuse_log.addHandler(COLOUR_HANDLER)
-    fuse_log.setLevel(logging.INFO)
-
-    main(sys.argv[2], sys.argv[1], DockerFS, sys.argv[3] if len(sys.argv) > 3 else None, debug=False)
+    main()

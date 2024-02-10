@@ -14,7 +14,9 @@ class FileAttr(Dict[str, int | float]):
     """Adds custom __str__ to format time stamps and octal fields in a `stat` structure.."""
 
     def items_formatted(self) -> Generator[Tuple[str, str], None, None]:
-        """Returns key/value pirs, but with the value formatted for human (programmer) consumption."""
+        """Returns key/value pirs, but with the value formatted for human
+        (programmer) consumption.
+        """
         for key, value in self.items():
             formatter = __FORMATTERS.get(key, str)
             str_value = formatter(value)
@@ -29,7 +31,7 @@ class FileAttr(Dict[str, int | float]):
             If you want more control over formatting, call
             ``items_formatted()`` and iterate directly.
         """
-        lines = List[str] = []
+        lines: List[str] = []
         for key, value in self.items_formatted():
             lines.append(f"{key}: {value}")
         return "\n".join(lines)

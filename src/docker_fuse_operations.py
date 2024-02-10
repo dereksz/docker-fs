@@ -2,7 +2,7 @@
 import logging
 import os
 import errno
-from typing import Final, List, Optional
+from typing import List, Optional
 
 
 from fuse import FuseOSError, Operations

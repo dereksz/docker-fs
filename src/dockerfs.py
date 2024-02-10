@@ -29,7 +29,7 @@ def check_socket_or_port(arg: str) -> str:
     if parts[0] == "unix":
         try:
             stat = os.stat(parts[1])
-        except Exception as e:
+        except Exception as e: # pylint: disable=broad-exception-caught
             LOGGER.warning("`stat` failed -> %s", e)
         else:
             mode = stat.st_mode
@@ -44,7 +44,7 @@ def check_folder(arg: str) -> str:
     """Checks the arg is an existing folder."""
     try:
         stat = os.stat(arg)
-    except Exception as e:
+    except Exception as e: # pylint: disable=broad-exception-caught
         LOGGER.warning("`stat` failed -> %s", e)
     else:
         mode = stat.st_mode

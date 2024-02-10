@@ -129,7 +129,7 @@ class DockerContext():
 
     # `getattr` calls
 
-    def getattr_(
+    def getattr_( # pylint: disable=too-many-arguments
         self,
         is_file: bool = False,
         mode: Optional[int] = None,
@@ -227,10 +227,10 @@ class DockerContext():
         attr["st_ctime"] = ctime
         attr["st_mtime"] = ctime
         attr["st_atime"] = ctime
-        attr["st_size"] = size or 1000 # TODO: fake for fuse-t
+        attr["st_size"] = size or 1000 # Fake for fuse. Zero can be problematic.
         if sys.platform == "darwin":
             attr["st_birthtime"] = ctime
-            attr["st_nlink"] += count
+            attr["st_nlink"] += count # MacOS includes files in the nlink numbert too
         return attr
 
 

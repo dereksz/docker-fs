@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "DockerFS"
-version = "0.0.2"
+version = "0.0.3"
 description = "A FUSE file-system to allow you to see Docker assets and their creation timestamps.  Great for Makefiles!"
 keywords = ["fuse", "fusepy", "docker", "makefile", "fuse-t"]
 readme = "README.md"

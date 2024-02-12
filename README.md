@@ -44,10 +44,6 @@ so that they are (by default) hiden from `ls`.  Named objects are listed
 as expected.  The tags used to described assets are also output (like names)
 and show up a sym-links to the `.<sha256>` files.  Currently these include the 
 `:latest`, etc., parts of the name, which may become problematic.
-Names and tags with `/` in them are currently not being displayed.
-I'm hesitent to try and fix this just yet due to the significant increase in 
-complexity that would arise.  If you feel strongly abbout this and think you
-have a solid solution design, please raise an issue and we can start a discussion.
 
 
 ```

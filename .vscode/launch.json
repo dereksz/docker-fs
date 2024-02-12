@@ -17,13 +17,13 @@
           "name": "Python: mount",
           "type": "debugpy",
           "request": "launch",
-          "program": "dockerfs.py",
+          "cwd": "${workspaceFolder}",
+          "program": "src/dockerfs.py",
           "console": "integratedTerminal",
-          "cwd": "${workspaceFolder}/src",
           "args": [
-            ".",
-            "/Users/derek.slone-zhen/ow-edge-collection/integration-layer/.dockerfs",
-            "unix://Users/derek.slone-zhen/.colima/default/docker.sock",
+            // "--debug-fuse",
+            ".dockerfs",
+            "/var/run/docker.sock",
           ],
           "env": {
             "PYTHONPATH": "${workspaceFolder}${pathSeparator}src"

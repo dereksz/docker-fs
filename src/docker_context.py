@@ -15,9 +15,12 @@ from docker.models.resource import (
     Model as _DockerModel
 )
 from fuse import FuseOSError
+from cachetools.func import ttl_cache
 
 from file_attr import S_IRALL, S_IXALL, FileAttr
 
+
+SHA256 = str
 
 LOGGER: Final = logging.getLogger(__name__)
 
@@ -175,6 +178,22 @@ class DockerContext():
 
 
     # `getattr` calls
+    
+    @ttl_cache(ttl=2)
+    def _get_sizes(self) -> Dict[SHA256, int]:
+        result : Dict[SHA256, int] = {}
+        df = self.api.df()
+        for type in ("Containers",): # "Volumes", "Images"):
+            resources = df.get(type)
+            if not resources:
+                continue
+            for resource in resources:
+                result[resource["Id"]] = (
+                    resource.get("SizeRootFs")
+                )
+                
+        return result
+            
 
     def getattr_( # pylint: disable=too-many-arguments
         self,
@@ -189,12 +208,12 @@ class DockerContext():
         and as a base for when getting file and directory attras.
         """
         attr : FileAttr = FileAttr(
-          st_atime= atime or _NOW_ISH,
-          st_ctime= ctime or _NOW_ISH,
+          st_atime= atime or _OLD,
+          st_ctime= ctime or _OLD,
           st_uid= 0, # 0 == root
           st_gid= 0, # 0 == root / wheel
           st_mode= mode if mode else S_IRALL | (S_IFREG if is_file else S_IFDIR | S_IXALL),
-          st_mtime= mtime or _NOW_ISH,
+          st_mtime= mtime or _OLD,
           st_nlink= 1 if is_file else 2,
         )
         # if size:
@@ -243,7 +262,7 @@ class DockerContext():
         attrs = model.attrs
         created : str = attrs.get("Created") or attrs.get("CreatedAt") # the latter for volumes
         ctime = datetime.fromisoformat(created).timestamp()
-        size = attrs.get("Size",1000)
+        size =  attrs.get("SizeRootFs") or attrs.get("Size") or self._get_sizes().get(model.id) or 1000
         # Get default attr
         attr = self.getattr_(is_file=True).copy()
         # And update
@@ -282,7 +301,7 @@ class DockerContext():
             this_ctime = datetime.fromisoformat(created).timestamp()
             if this_ctime > ctime:
                 ctime = this_ctime
-            size += attrs.get("Size", 0)
+            size += attrs.get("SizeRootFs", 0) or attrs.get("Size", 0)
             count += 1
         attr["st_ctime"] = ctime
         attr["st_mtime"] = ctime
@@ -344,7 +363,9 @@ class DockerContext():
         """Get attributes for a container (if ``name`` not None)
         or for the "containers" folder (if ``name`` is None).
         """
-        result = self._getattr(self.client.containers, name, all=True)
+        containers = self.client.containers
+        # containers = self.api.df()["Containers"]
+        result = self._getattr(containers, name, all=True)
         if name:
             LOGGER.info("getattr_containers(%s) -> %s", name, result)
             a = 1
@@ -386,4 +407,4 @@ class DockerContextWithRead(DockerContext):
         return 0
 
 
-_NOW_ISH = float(1707020058.716742869)
+_OLD = float(0.0)

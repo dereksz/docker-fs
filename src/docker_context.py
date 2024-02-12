@@ -2,7 +2,7 @@
 file-system entities.  (Files, Folders, Sym-links, with appropriate attributes.)
 """
 import sys
-from typing import Dict, Final, Generator, Iterable, List, Optional
+from typing import Dict, Final, Generator, Iterable, List, Optional, Set
 from datetime import datetime
 import errno
 import logging
@@ -36,6 +36,7 @@ class DockerContext():
     """Main Context for helping us query Docker assets in a file-like manner."""
 
     client: docker.client.DockerClient
+    api: docker.APIClient
     volume_symlinks: Dict[str, str]
     image_symlinks: Dict[str, str]
     container_symlinks: Dict[str, str]
@@ -47,6 +48,7 @@ class DockerContext():
             context_api = docker.ContextAPI()
             context = context_api.get_current_context()
             base_url = context.Host
+        self.api = docker.APIClient(base_url=base_url)
         self.client = docker.client.DockerClient(base_url=base_url)
         self.volume_symlinks = {}
         self.image_symlinks = {}
@@ -54,8 +56,6 @@ class DockerContext():
 
 
     ROOT_FOLDERS: Final = (
-      ".",
-      "..",
       "volumes",
       "images",
       "containers",
@@ -67,16 +67,18 @@ class DockerContext():
 
     def readlink(self, name: str) -> str:
         """Dereference a sym-link into a file name / path."""
-        parts = name.split('/')
         try:
-            assert len(parts) == 3
-            assert parts[0] == ''
+            root, model_type, name_or_tag = name.split('/', maxsplit=2)
+            assert root == ''
             symlinks = {
                 "volumes": self.volume_symlinks,
                 "images": self.image_symlinks,
                 "containers": self.container_symlinks,
-            }[parts[1]]
-            dest_name = symlinks[parts[2]]
+            }[model_type]
+            dest_name = symlinks[name_or_tag]
+            sub_dir_depth = name_or_tag.count("/")
+            if sub_dir_depth > 0:
+                dest_name = "../" * sub_dir_depth + dest_name
             return dest_name
         except Exception as e:
             raise FuseOSError(errno.ENOENT) from e
@@ -84,11 +86,11 @@ class DockerContext():
 
     # `readdir` calls
 
-    def readdir_(self) -> Generator[str,None,None]:
+    def readdir_(self, tag_prefix=None) -> Generator[str,None,None]:
         """Generate folder names for filesystem root."""
         yield from self.__class__.ROOT_FOLDERS
 
-    def readdir_volumes(self) -> Generator[str,None,None]:
+    def readdir_volumes(self, tag_prefix=None) -> Generator[str,None,None]:
         """Generate volume names and sha256's."""
         syms : Dict[str, str] = {}
         self.volume_symlinks = syms
@@ -103,19 +105,64 @@ class DockerContext():
                 yield sha256
                 syms[name] = sha256
 
-    def readdir_images(self) -> Generator[str,None,None]:
-        """Generate image names and sha256's."""
+    def readdir_images(self, tag_prefix: str | None = None, sym_links_only = False) -> Generator[str,None,None]:
+        """Generate image names and sha256's.
+        
+        The ``sym_links_only`` flag allows us to just generate the ``image_symlinks``
+        attribute in situation where it may not yet have been created.
+        """
+        if tag_prefix is not None:
+            yield from self.readdir_image_tags(tag_prefix)
+            return
         syms : Dict[str, str] = {}
         self.image_symlinks = syms
+        sub_dirs: Set[str] = set()
         for i in self.client.images.list(all=True):
             sha256 = i.id
             assert sha256.startswith("sha256:")
             sha256 = '.' + sha256[7:]
             syms.update({ t: sha256 for t in i.tags })
-            yield from i.tags
+            if sym_links_only:
+                continue
+            t: str
             yield sha256
+            for t in i.tags:
+                LOGGER.info("Image tag: %s", t)
+                try:
+                    idx = t.index('/')
+                except ValueError:
+                    yield t # no sub-folders
+                else:
+                    # extract sub-folder
+                    next_level_dir = t[:idx]
+                    # check we've not handed it out already
+                    if next_level_dir in sub_dirs:
+                        continue
+                    sub_dirs.add(next_level_dir)
+                    yield next_level_dir
+                
 
-    def readdir_containers(self) -> Generator[str,None,None]:
+    def readdir_image_tags(self, tag_prefix: str) -> Generator[str,None,None]:
+        if tag_prefix[-1] != '/':
+            tag_prefix += '/'
+        remaining_starts_at = len(tag_prefix)
+        sub_dirs: Set[str] = set()
+        if not self.image_symlinks:
+            for _ in self.readdir_images(sym_links_only=True):
+                pass
+            
+        for tag in self.image_symlinks:
+            if tag.startswith(tag_prefix):
+                tag_remaining = tag[remaining_starts_at:]
+                if '/' in tag_remaining:
+                    sub_dir, _ = tag_remaining.split("/", maxsplit=2)
+                    if sub_dir not in sub_dirs:
+                        sub_dirs.add(sub_dir)
+                        yield sub_dir
+                else:
+                    yield tag_remaining
+                
+    def readdir_containers(self, tag_prefix=None) -> Generator[str,None,None]:
         """Generate container names and sha256's."""
         syms : Dict[str, str] = {}
         self.container_symlinks = syms
@@ -141,16 +188,15 @@ class DockerContext():
         """Called for the root of the file system,
         and as a base for when getting file and directory attras.
         """
-        now_ish = float(1707020058.716742869)
-        attr : FileAttr = {
-          'st_atime': atime or now_ish,
-          'st_ctime': ctime or now_ish,
-          'st_uid': 0, # 0 == root
-          'st_gid': 0, # 0 == root / wheel
-          'st_mode': mode if mode else S_IRALL | (S_IFREG if is_file else S_IFDIR | S_IXALL),
-          'st_mtime': mtime or now_ish,
-          'st_nlink': 1 if is_file else 2,
-        }
+        attr : FileAttr = FileAttr(
+          st_atime= atime or _NOW_ISH,
+          st_ctime= ctime or _NOW_ISH,
+          st_uid= 0, # 0 == root
+          st_gid= 0, # 0 == root / wheel
+          st_mode= mode if mode else S_IRALL | (S_IFREG if is_file else S_IFDIR | S_IXALL),
+          st_mtime= mtime or _NOW_ISH,
+          st_nlink= 1 if is_file else 2,
+        )
         # if size:
         attr['st_size'] = size or 1000
         return attr
@@ -169,7 +215,7 @@ class DockerContext():
 
 
     def _find_from_path(self, path: str) -> DockerModel:
-        parts = path.split('/')
+        parts = path.split('/', maxsplit=3)
 
         assert len(parts) == 3
         assert parts[0] == ''
@@ -188,16 +234,23 @@ class DockerContext():
         return self._find_from_name(collection=collection, name=parts[2])
 
 
-    def _getattr_from_model(self, collection: DockerCollection, name: str) -> FileAttr:
+    def _getattr_from_name(self, collection: DockerCollection, name: str) -> FileAttr:
         model = self._find_from_name(collection, name)
-        attr = self.getattr_(is_file=True).copy()
+        return self._getattr_from_model(model, name)
+
+
+    def _getattr_from_model(self, model: DockerModel, name: str) -> FileAttr:
         attrs = model.attrs
         created : str = attrs.get("Created") or attrs.get("CreatedAt") # the latter for volumes
         ctime = datetime.fromisoformat(created).timestamp()
         size = attrs.get("Size",1000)
+        # Get default attr
+        attr = self.getattr_(is_file=True).copy()
+        # And update
         attr["st_ctime"] = ctime
         attr["st_mtime"] = ctime
         attr["st_atime"] = ctime
+        attr["st_birthtime"] = ctime
         attr["st_size"] = size
         if name and name[0] != '.': # probably a sym-link
             if (
@@ -208,16 +261,23 @@ class DockerContext():
                 mode: int = int(attr["st_mode"])
                 mode = S_IMODE(mode) | S_IFLNK
                 attr["st_mode"] = mode
+                # len of sha256 + 1 for leading '.' + any '../' for asscending
+                attr["st_size"] = 64 + 1 + 3 * name.count('/')
         return attr
 
 
-    def _getattr_from_collection(self, collection: DockerCollection, **list_kwargs) -> FileAttr:
+    def _getattr_from_collection(self, collection: DockerCollection, tag_prefix: str | None = None, **list_kwargs) -> FileAttr:
         attr = self.getattr_(is_file=False).copy()
         ctime = attr["st_ctime"]
         size = 0
         count = 0
+        if tag_prefix and tag_prefix[-1] != '/':
+            tag_prefix += '/'
         for model in collection.list(**list_kwargs):
             attrs = model.attrs
+            if tag_prefix:
+                if not any(t.startswith(tag_prefix) for t in model.tags):
+                    continue
             created : str = attrs.get("Created") or attrs.get("CreatedAt")
             this_ctime = datetime.fromisoformat(created).timestamp()
             if this_ctime > ctime:
@@ -227,10 +287,9 @@ class DockerContext():
         attr["st_ctime"] = ctime
         attr["st_mtime"] = ctime
         attr["st_atime"] = ctime
+        attr["st_birthtime"] = ctime
         attr["st_size"] = size or 1000 # Fake for fuse. Zero can be problematic.
-        if sys.platform == "darwin":
-            attr["st_birthtime"] = ctime
-            attr["st_nlink"] += count # MacOS includes files in the nlink numbert too
+        attr["st_nlink"] += count # MacOS includes files in the nlink numbert too, we do that by default
         return attr
 
 
@@ -241,7 +300,7 @@ class DockerContext():
             **list_kwargs
     ) -> FileAttr:
         attr = (
-            self._getattr_from_model(collection, name)
+            self._getattr_from_name(collection, name)
             if name else
             self._getattr_from_collection(collection, **list_kwargs)
         )
@@ -256,15 +315,40 @@ class DockerContext():
 
     def getattr_images(self, name: Optional[str]) -> FileAttr:
         """Get attributes for a image (if ``name`` not None)
-        or for the "imagess" folder (if ``name`` is None).
+        or for the "images" folder (if ``name`` is None).
         """
-        return self._getattr(self.client.images, name, all=True)
+        collection: Final = self.client.images
+        if name:
+            try:
+                if name[0] == '.':
+                    name = name[1:]
+                model = collection.get(name)
+            except docker.errors.NotFound as e:
+                try_folder = name + '/'
+                try:
+                    result = self._getattr_from_collection(
+                        collection, tag_prefix=try_folder, all=True)
+                    if result["st_nlink"] > 2:
+                        return result
+                except Exception:
+                    pass
+                raise FuseOSError(errno.ENOENT) from e
+            result = self._getattr_from_model(model, name)
+        else:
+            result = self._getattr_from_collection(collection, all=True)
+
+        return result           
+
 
     def getattr_containers(self, name: Optional[str]) -> FileAttr:
         """Get attributes for a container (if ``name`` not None)
         or for the "containers" folder (if ``name`` is None).
         """
-        return self._getattr(self.client.containers, name, all=True)
+        result = self._getattr(self.client.containers, name, all=True)
+        if name:
+            LOGGER.info("getattr_containers(%s) -> %s", name, result)
+            a = 1
+        return result
 
 
 
@@ -300,3 +384,6 @@ class DockerContextWithRead(DockerContext):
         assert self.file_desciptors[fh] is not None
         self.file_desciptors[fh] = None
         return 0
+
+
+_NOW_ISH = float(1707020058.716742869)

@@ -55,22 +55,39 @@ def check_folder(arg: str) -> str:
     raise argparse.ArgumentTypeError(f"Source does not exist or is not supported: {arg}")
 
 
-def make_parser():
-    """Makes Parser resdy to parses args passed to script."""
-
-    parser = argparse.ArgumentParser(
-        prog='DockerFS',
-        description='Creates virtual file system exposing Docker asset names and dates.',
-    )
-    parser.add_argument(
-        "mount_point", nargs="?", type=check_folder, default=".dockerfs",
-        help="Mount point for docker virtual file system.  Defaults to `.dockerfs`."
-    )
+def _parser_add_source(parser):
     parser.add_argument(
         "docker_source", nargs="?", type=check_socket_or_port,
         help="Socket or port to connect to docker, e.g. `unix:///var/run/docker.sock`.  "
              "Will ask and use dockers 'Host' from the default context is not supplied."
     )
+
+def _parser_add_mount_point(parser):
+    parser.add_argument(
+        "mount_point", nargs="?", type=check_folder, default=".dockerfs",
+        help="Mount point for docker virtual file system.  Defaults to `.dockerfs`."
+    )
+
+def _get_positional_args():
+    return [arg for arg in sys.argv[1:] if arg and arg[0] != '-']
+
+def _is_first_arg_mountpoint():
+    positional_args = _get_positional_args()
+    return positional_args and os.path.isdir(positional_args[0])
+
+def make_parser():
+    """Makes Parser ready to parses args passed to script."""
+
+    parser = argparse.ArgumentParser(
+        prog='DockerFS',
+        description='Creates virtual file system exposing Docker asset names and dates.',
+    )
+    if _is_first_arg_mountpoint(): # Common script use-case
+        _parser_add_mount_point(parser)
+        _parser_add_source(parser)
+    else: # `mount.dockerfs` use-case
+        _parser_add_source(parser)
+        _parser_add_mount_point(parser)
     parser.add_argument("--verbose", "-v", action='store_true', help="Enables DEBUG level tracing")
     parser.add_argument("--quiet", "-q", action='store_true', help="Drops to WARNING level tracing")
     parser.add_argument("--debug-fuse", action='store_true',
@@ -108,6 +125,7 @@ def setup_log_levels(args: argparse.Namespace): # pylint: disable=unused-argumen
 def main():
     """Main."""
     setup_loggers()
+    
     parser = make_parser()
     args = parser.parse_args()
     setup_log_levels(args)

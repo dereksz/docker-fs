@@ -1,7 +1,7 @@
 """Defines DockerOperations class for FUSE with the required call-backs."""
 import logging
 import os
-import errno
+from errno import EACCES, EFAULT, ENOTSUP, ENOENT
 from typing import List, Optional
 
 
@@ -35,14 +35,20 @@ class DockerOperations(Operations):
 
     def __call__(self, op, *args):
         logger.debug("FUSE op being called: %s%s", op, (*args,))
-        if not hasattr(self, op):
-            raise FuseOSError(errno.EFAULT)
+        method = getattr(self, op)
+        if method is None:
+            logger.warning("FUSE call-back not defined: %s", op)
+            raise FuseOSError(EFAULT)
         try:
-            result = getattr(self, op)(*args)
+            result = method(*args)
             logging.info("FUSE op returned: %s() -> %s", op, result)
             return result
         except Exception as e:
-            logger.exception("Exception calling %s: %s", op, e, exc_info=False, stack_info=False)
+            if isinstance(e, FuseOSError):
+                if e.errno not in (ENOTSUP, ENOENT):
+                    logger.warning("Exception calling %s: %s", op, e, exc_info=False, stack_info=False)
+            else:
+                logger.exception("Exception calling %s: %s", op, e, exc_info=False, stack_info=False)
             raise
 
 
@@ -56,7 +62,13 @@ class DockerOperations(Operations):
             logger.info(f"access(self, {path=}, {amode=}) -> granted")
             return 0
         logger.warning(f"access(self, {path=}, {amode=}): amode not permitted")
-        raise FuseOSError(errno.EACCES)
+        raise FuseOSError(EACCES)
+
+
+    def getxattr(self, path, name, position=0):
+        logger.debug(f"getxattr(self, {path=}, {name=}, {position=})")
+        return b''
+        raise FuseOSError(ENOTSUP)
 
     def getattr(self, path: str, fh=None):
         logger.debug(f"getattr(self, {path=}, {fh=})")
@@ -64,7 +76,7 @@ class DockerOperations(Operations):
             result = self.docker.getattr_()
             result["st_nlink"] = len(DockerContext.ROOT_FOLDERS)
         else:
-            parts : List[Optional[str]] = path.split('/')
+            parts: List[str|None] = path.split('/', maxsplit=2)  # type: ignore[assignment]
             if len(parts) == 2:
                 parts.append(None)
             if (
@@ -76,13 +88,14 @@ class DockerOperations(Operations):
                     "containers"
                 )
             ):
-                logger.warning(f"getattr(self, {path=}, {fh=}): Path is not registered.")
-                raise FuseOSError(errno.ENOENT)
+                if not path.startswith("/.Trash"):
+                    logger.warning(f"getattr(self, {path=}, {fh=}): Path is not registered.")
+                raise FuseOSError(ENOENT)
 
             method = getattr(DockerContext, f"getattr_{parts[1]}")
             if not method:
                 logger.warning(f"getattr(self, {path=}, {fh=}): Path is not registered.")
-                raise FuseOSError(errno.ENOENT)
+                raise FuseOSError(ENOENT)
 
             result = method(self.docker, parts[2])
 
@@ -92,17 +105,25 @@ class DockerOperations(Operations):
 
 
     def readdir(self, path: str, fh):
-        # logger.debug(f"readdir(self, {path=}, {fh=})")
+        logger.debug(f"readdir(self, {path=}, {fh=})")
         assert path[0] == '/'
-        path = path[1:]
-        reader = getattr(DockerContext, f"readdir_{path}")
+        rel_path = path[1:]
+        tag_prefix: str | None = None
+        if '/' in rel_path:
+            rel_path, tag_prefix = rel_path.split("/", maxsplit=1)
+        reader = getattr(DockerContext, f"readdir_{rel_path}")
         if not reader:
             logger.warning(f"readdir(self, {path=}, {fh=}): Path is not registered.")
-            raise FuseOSError(errno.ENOENT)
+            raise FuseOSError(ENOENT)
 
         yield "."
         yield ".."
-        files = list(reader(self.docker))
+        try:
+            file_generator = reader(self.docker, tag_prefix)
+        except TypeError as e:
+            logger.error('tag_prefix was not expected on "readdir_%s"', rel_path)
+            raise
+        files = list(file_generator)
         logger.info(f"readdir(self, {path=}, {fh=}) found %i files", len(files))
         yield from files
 

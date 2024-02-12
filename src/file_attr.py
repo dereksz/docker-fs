@@ -2,7 +2,7 @@
 ``dict`` when dealing with ``stat`` structures.
 """
 from datetime import datetime
-from typing import Callable, Dict, Final, Generator, List, Tuple
+from typing import Callable, Dict, Final, Generator, List, SupportsIndex, Tuple, Union
 
 
 # Extra file mode bit masks
@@ -18,8 +18,8 @@ class FileAttr(Dict[str, int | float]):
         (programmer) consumption.
         """
         for key, value in self.items():
-            formatter = __FORMATTERS.get(key, str)
-            str_value = formatter(value)
+            formatter = _FORMATTERS.get(key, str)
+            str_value = formatter(value) # type: ignore[arg-type]
             yield (key, str_value)
 
 
@@ -35,20 +35,26 @@ class FileAttr(Dict[str, int | float]):
         for key, value in self.items_formatted():
             lines.append(f"{key}: {value}")
         return "\n".join(lines)
-
+    
+    __repr__ = __str__
+    
+    def copy(self) -> "FileAttr":
+        return FileAttr(self.items())
+        
 
 # Static helpers
 
-__TIME_FMT: Final = Callable[[float], str]
-__OCTAL_FMT: Final = Callable[[int], str]
-__FMT_T: Final = __TIME_FMT | __OCTAL_FMT
+_TIME_FMT = Callable[[float], str]
+_OCTAL_FMT = Callable[[int], str]
+_FMT_T = Union[_TIME_FMT, _OCTAL_FMT]
 
 def __format_time(timet: float) -> str:
     return datetime.fromtimestamp(timet).isoformat()
 
-__format_octal = oct
+def __format_octal(value: int) -> str:
+    return oct(value)
 
-__FORMATTERS: Final[Dict[str, __FMT_T]] = {
+_FORMATTERS: Final[Dict[str, _FMT_T]] = {
     "st_ctime": __format_time,
     "st_mtime": __format_time,
     "st_atime": __format_time,

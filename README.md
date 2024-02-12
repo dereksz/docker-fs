@@ -32,7 +32,7 @@ After some false starts, the code was crafted to work with
 on Linux, and on MacOS using [fuse-t](https://www.fuse-t.org/).
 
 The script is self documenting.  But do note that - in particular - the
-docker source and mount point are reversed from what you'd expect on a
+docker source and mount point may be reversed from what you'd expect on a
 `mount` command.  This is actually convenient, because the source is actually
 something that is relatively easy for us to guess using calls into docker.
 The target, less so.  My recomendation is that you hide it way in a folder
@@ -48,8 +48,6 @@ Names and tags with `/` in them are currently not being displayed.
 I'm hesitent to try and fix this just yet due to the significant increase in 
 complexity that would arise.  If you feel strongly abbout this and think you
 have a solid solution design, please raise an issue and we can start a discussion.
-
-I am **definitely** abusing the POSIX file system in this driver.
 
 
 ```
@@ -75,6 +73,25 @@ The code initially was loosely based on code originally created by
 [Stavros Korokithakis](https://github.com/skorokithakis):
     - https://www.stavros.io/posts/python-fuse-filesystem/
     - https://github.com/skorokithakis/python-fuse-sample
+
+
+## Installation
+
+I recommend `pipx` for an isolated installation:
+
+```bash
+pipx install git+https://github.com/dereksz/docker-fs.git
+```
+
+I also recommend `tmux` (or `screen`) to split your terminal and run the `mount`
+in one window.  As an early alpha it does quite some tracing / logging,
+and currently just to `stdout`.
+
+Look at the script at `bin/dockerfs.sh` if you want a quieter invocation.
+
+These scripts are also suitable to be sym-linked from `mount.dockerfs` if
+you'd rather be using `mount -t dockerfs ...` - but I think this is more
+trouble than it's worth.
 
 
 ### Additional Resources

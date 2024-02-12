@@ -1,2 +1,3 @@
 fusepy<4
 docker
+cachetools
